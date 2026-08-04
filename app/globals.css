@@ -410,6 +410,7 @@ button:disabled {
 .admin-band,
 .trust-band,
 .home-index-band,
+.home-guide-band,
 .home-detail-band,
 .site-footer {
   margin: 0 auto;
@@ -470,6 +471,10 @@ button:disabled {
 
 .hero-actions {
   margin-top: 28px;
+}
+
+.hero-login-action {
+  display: none;
 }
 
 .status-pill,
@@ -714,6 +719,13 @@ button:disabled {
   margin-top: 22px;
 }
 
+.case-intro {
+  color: var(--muted);
+  line-height: 1.5;
+  max-width: 410px;
+  text-align: right;
+}
+
 .pack-card {
   --accent: var(--cyan);
   background: var(--panel);
@@ -819,6 +831,92 @@ button:disabled {
 
 .home-index-band {
   padding-top: 18px;
+}
+
+.home-guide-band {
+  padding-bottom: 46px;
+  padding-top: 62px;
+}
+
+.home-steps {
+  border-bottom: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  list-style: none;
+  margin-top: 34px;
+  padding: 0;
+}
+
+.home-steps li {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 38px minmax(0, 1fr);
+  min-height: 150px;
+  padding: 28px 24px;
+}
+
+.home-steps li + li {
+  border-left: 1px solid var(--line);
+}
+
+.home-steps li > span {
+  color: var(--cyan);
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding-top: 3px;
+}
+
+.home-steps h3 {
+  font-size: 1.12rem;
+  line-height: 1.18;
+}
+
+.home-steps p {
+  color: var(--muted);
+  line-height: 1.5;
+  margin-top: 9px;
+}
+
+.home-shortcuts {
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  gap: 26px;
+  justify-content: space-between;
+  margin-top: 30px;
+  padding: 22px 24px;
+}
+
+.home-shortcuts h3 {
+  font-size: 1.08rem;
+  line-height: 1.3;
+}
+
+.home-shortcuts nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.home-shortcuts a {
+  align-items: center;
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--foreground);
+  display: inline-flex;
+  font-size: 0.88rem;
+  font-weight: 720;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+}
+
+.home-shortcuts a:hover {
+  border-color: var(--line-strong);
 }
 
 .section-heading > p {
@@ -2654,7 +2752,16 @@ button:disabled {
 }
 
 .trust-band article {
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: none;
   padding: 20px;
+}
+
+.trust-band article:first-child {
+  border-left: 0;
 }
 
 .trust-band svg {
@@ -2682,6 +2789,13 @@ button:disabled {
   padding: 20px;
   position: fixed;
   z-index: 50;
+}
+
+.home-auth-modal .auth-panel {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
 }
 
 .utility-modal {
@@ -3219,6 +3333,7 @@ button:disabled {
   .admin-band,
   .trust-band,
   .home-index-band,
+  .home-guide-band,
   .home-detail-band,
   .site-footer {
     padding-left: 16px;
@@ -3229,8 +3344,17 @@ button:disabled {
     padding-top: 34px;
   }
 
+  .market-hero .hero-side {
+    display: none;
+  }
+
+  .hero-login-action {
+    display: inline-flex;
+  }
+
   .case-header,
   .stage-top,
+  .section-heading,
   .page-heading,
   .panel-heading {
     align-items: stretch;
@@ -3246,6 +3370,42 @@ button:disabled {
   .trust-band,
   .modal-copy dl {
     grid-template-columns: 1fr;
+  }
+
+  .case-intro {
+    text-align: left;
+  }
+
+  .home-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .home-steps li {
+    min-height: 0;
+    padding: 22px 4px;
+  }
+
+  .home-steps li + li {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .home-shortcuts {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .home-shortcuts nav,
+  .home-shortcuts a {
+    width: 100%;
+  }
+
+  .trust-band article,
+  .trust-band article:first-child {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding-left: 0;
+    padding-right: 0;
   }
 
   .search-row {

@@ -7,7 +7,6 @@ import {
   Database,
   Dice5,
   Eye,
-  Filter,
   Gauge,
   Info,
   LockKeyhole,
@@ -20,7 +19,6 @@ import {
   Search,
   Settings,
   ShieldCheck,
-  ShoppingCart,
   Sparkles,
   Trash2,
   Trophy,
@@ -926,6 +924,7 @@ export function BoosterMarket({
   const [loginPassword, setLoginPassword] = useState("");
   const [loginEmail, setLoginEmail] = useState("");
   const [authMessage, setAuthMessage] = useState("");
+  const [homeAuthOpen, setHomeAuthOpen] = useState(false);
   const [adminMessage, setAdminMessage] = useState("");
   const [adminSaving, setAdminSaving] = useState(false);
   const [profileDisplayName, setProfileDisplayName] = useState("");
@@ -1211,18 +1210,6 @@ export function BoosterMarket({
   const selectedPackExists = packs.some((pack) => pack.id === activePackId);
   const selectedPack = packs.find((pack) => pack.id === activePackId) ?? packs[0];
   const selectedTopItem = topItem(selectedPack);
-  const totalPackCards = packs.reduce(
-    (total, pack) => total + pack.items.length,
-    0,
-  );
-  const lowestPackPrice = packs.reduce(
-    (lowest, pack) => Math.min(lowest, pack.price),
-    packs[0]?.price ?? 0,
-  );
-  const highestHitChance = packs.reduce(
-    (highest, pack) => Math.max(highest, packHitChance(pack)),
-    0,
-  );
   const rouletteBelongsToSelectedPack = roulette.packId === selectedPack.id;
   const visibleRouletteItems = rouletteBelongsToSelectedPack ? roulette.items : [];
   const visibleRouletteOffset = rouletteBelongsToSelectedPack ? roulette.offset : 0;
@@ -1481,6 +1468,7 @@ export function BoosterMarket({
       };
 
       storeSession(auth);
+      setHomeAuthOpen(false);
       setLoginPassword("");
       setApiStatus("online");
       setAuthMessage(
@@ -2379,178 +2367,74 @@ export function BoosterMarket({
     <section className="case-layout" id="cajas" aria-label="Cajas disponibles">
       <div className="case-header">
         <div>
-          <span className="eyebrow">Cajas disponibles</span>
-          <h2>Elegir caja</h2>
+          <span className="eyebrow">Coleccion actual</span>
+          <h2>Elige tu proxima caja</h2>
         </div>
-        <div className="pack-filter">
-          <Filter size={17} aria-hidden />
-          <span>{packs.length} cajas locales</span>
-        </div>
+        <p className="case-intro">
+          Revisa los posibles premios antes de entrar a la apertura.
+        </p>
       </div>
 
       {renderPackCards(packs)}
     </section>
   );
 
-  const homeIndexSection = (
+  const homeGuideSection = (
     <section
-      className="home-index-band"
+      className="home-guide-band"
       id="como-funciona"
-      aria-label="Indice del sitio"
+      aria-label="Como funciona Pullario"
     >
       <div className="section-heading">
         <div>
-          <span className="eyebrow">Indice del sitio</span>
-          <h2>Pullario en una mirada</h2>
+          <span className="eyebrow">Como funciona</span>
+          <h2>De la caja a tu inventario</h2>
         </div>
         <p>
-          Un punto de entrada para compradores: cajas publicadas, buscador
-          multi TCG, ruleta de apertura e inventario. La administracion queda
-          reservada a Pullario.
+          Una apertura simple, con los premios y sus probabilidades disponibles
+          antes de elegir.
         </p>
       </div>
 
-      <div className="home-metrics" aria-label="Resumen de Pullario">
-        <article>
-          <small>Cajas activas</small>
-          <strong>{packs.length}</strong>
-          <span>Listos para explorar</span>
-        </article>
-        <article>
-          <small>Premios en pools</small>
-          <strong>{totalPackCards}</strong>
-          <span>Con odds visibles</span>
-        </article>
-        <article>
-          <small>Desde</small>
-          <strong>{formatUsd.format(lowestPackPrice)}</strong>
-          <span>Precio demo mas bajo</span>
-        </article>
-        <article>
-          <small>Mejor hit chance</small>
-          <strong>{formatPercent.format(highestHitChance)}%</strong>
-          <span>Entre cajas cargadas</span>
-        </article>
-      </div>
+      <ol className="home-steps">
+        <li>
+          <span>01</span>
+          <div>
+            <h3>Elegi una caja</h3>
+            <p>Explora el contenido, los precios y las probabilidades.</p>
+          </div>
+        </li>
+        <li>
+          <span>02</span>
+          <div>
+            <h3>Abrila en la ruleta</h3>
+            <p>El resultado se revela al terminar la animacion.</p>
+          </div>
+        </li>
+        <li>
+          <span>03</span>
+          <div>
+            <h3>Decidi que hacer</h3>
+            <p>Conserva el premio, vendelo por saldo o pedi el retiro.</p>
+          </div>
+        </li>
+      </ol>
 
-      <div className="home-index-grid">
-        <Link className="home-index-card" href="#cajas">
-          <PackageOpen size={22} aria-hidden />
-          <span>Cajas</span>
-          <strong>Elegir por juego y expansion</strong>
-          <small>
-            Compara precio, serie y probabilidad de hit antes de abrir.
-          </small>
-        </Link>
-        <Link
-          className="home-index-card"
-          href={`/packs/${encodeURIComponent(selectedPack.id)}`}
-        >
-          <Dice5 size={22} aria-hidden />
-          <span>Apertura</span>
-          <strong>Ruleta con resultado demorado</strong>
-          <small>
-            El premio ganado se agrega al inventario cuando termina la animacion.
-          </small>
-        </Link>
-        <Link className="home-index-card" href="/cards">
-          <Search size={22} aria-hidden />
-          <span>Premios</span>
-          <strong>Busqueda por nombre, set o numero</strong>
-          <small>
-            One Piece, Pokemon y Magic con imagenes, precios y variantes.
-          </small>
-        </Link>
-        <Link className="home-index-card" href="/profile">
-          <Trophy size={22} aria-hidden />
-          <span>Inventario</span>
-          <strong>Premios ganados e historial</strong>
-          <small>
-            Disponible, vendida o retirada sin perder el registro de cada pull.
-          </small>
-        </Link>
-        <Link className="home-index-card" href="/admin">
-          <Database size={22} aria-hidden />
-          <span>Administracion</span>
-          <strong>Un unico vendedor</strong>
-          <small>
-            Pullario gestiona stock, cajas editables y pedidos reservados.
-          </small>
-        </Link>
-        <Link className="home-index-card" href="#confianza">
-          <ShieldCheck size={22} aria-hidden />
-          <span>Confianza</span>
-          <strong>Odds auditables</strong>
-          <small>
-            El contenido de cada caja se puede revisar premio por premio.
-          </small>
-        </Link>
-      </div>
-    </section>
-  );
-
-  const homeDetailsSection = (
-    <section className="home-detail-band" aria-label="Informacion detallada">
-      <div className="detail-copy">
-        <span className="eyebrow">Estructura</span>
-        <h2>Marketplace local con pools transparentes</h2>
-        <p>
-          Pullario separa cuenta, cartera, stock, cajas publicadas y premios
-          ganadas. La idea es poder probar una experiencia de compra y apertura
-          sin esconder los datos que definen el resultado.
-        </p>
-      </div>
-      <div className="detail-grid">
-        <article>
-          <Eye size={21} aria-hidden />
-          <h3>Antes de abrir</h3>
-          <p>
-            Cada caja muestra premios posibles, juego, expansion, precio de referencia
-            y probabilidad normalizada.
-          </p>
-        </article>
-        <article>
-          <Gauge size={21} aria-hidden />
-          <h3>Hit chance visible</h3>
-          <p>
-            El pack destacado marca{" "}
-            <strong>{formatPercent.format(packHitChance(selectedPack))}%</strong>{" "}
-            de hit y su premio mas alto es{" "}
-            <strong>{selectedTopItem?.card.name ?? "un premio destacado"}</strong>.
-          </p>
-        </article>
-        <article>
-          <Save size={21} aria-hidden />
-          <h3>Inventario del usuario</h3>
-          <p>
-            Los premios ganados quedan en la cuenta y pueden venderse para
-            recuperar saldo o marcarse para retiro fisico.
-          </p>
-        </article>
-        <article>
-          <Database size={21} aria-hidden />
-          <h3>Stock de Pullario</h3>
-          <p>
-            El administrador arma cajas unicamente con productos disponibles,
-            separados por One Piece, Pokemon y Magic.
-          </p>
-        </article>
-        <article>
-          <Wallet size={21} aria-hidden />
-          <h3>Cartera demo</h3>
-          <p>
-            El saldo baja al abrir cajas y sube cuando vendes premios ganados
-            desde el inventario.
-          </p>
-        </article>
-        <article>
-          <Sparkles size={21} aria-hidden />
-          <h3>Venta centralizada</h3>
-          <p>
-            Todas las cajas publicadas, el stock y los pedidos pertenecen a
-            Pullario y se controlan desde una sola administracion.
-          </p>
-        </article>
+      <div className="home-shortcuts">
+        <div>
+          <span className="eyebrow">Tambien en Pullario</span>
+          <h3>Explora cartas e inventario sin perder el foco.</h3>
+        </div>
+        <nav aria-label="Accesos de Pullario">
+          <Link href="/cards">
+            <Search size={18} aria-hidden />
+            Buscar cartas
+          </Link>
+          <Link href="/profile">
+            <Trophy size={18} aria-hidden />
+            Ver inventario
+          </Link>
+        </nav>
       </div>
     </section>
   );
@@ -4070,25 +3954,32 @@ export function BoosterMarket({
             <section className="market-hero" aria-labelledby="main-title">
               <div className="hero-copy">
                 <div className="status-pill">
-                  <ShieldCheck size={16} aria-hidden />
-                  Marketplace local
+                  <Sparkles size={16} aria-hidden />
+                  One Piece · Pokemon · Magic
                 </div>
-                <h1 id="main-title">Abrir cajas TCG</h1>
+                <h1 id="main-title">Cajas TCG, premio asegurado</h1>
                 <p>
-                  Elegi un pack, revisa sus premios posibles y abrilo con una
-                  ruleta transparente. Todo queda local mientras definis precios,
-                  pools y probabilidades.
+                  Elige una caja, conoce todo lo que puede salir y descubre tu
+                  premio en la ruleta de Pullario.
                 </p>
                 <div className="hero-actions" aria-label="Acciones principales">
-                  <Link className="primary-action" href="/cards">
+                  <Link className="primary-action" href="#cajas">
+                    <PackageOpen size={18} aria-hidden />
+                    Ver cajas
+                  </Link>
+                  <Link className="secondary-action" href="/cards">
                     <Search size={18} aria-hidden />
                     Buscar cartas
                   </Link>
-                  {isSellerRole(session?.role) && (
-                    <Link className="secondary-action" href="/admin">
-                      <Settings size={18} aria-hidden />
-                      Abrir administrador
-                    </Link>
+                  {!session && (
+                    <button
+                      className="secondary-action hero-login-action"
+                      onClick={() => setHomeAuthOpen(true)}
+                      type="button"
+                    >
+                      <LogIn size={18} aria-hidden />
+                      Entrar
+                    </button>
                   )}
                 </div>
               </div>
@@ -4097,8 +3988,7 @@ export function BoosterMarket({
             </section>
 
             {packListing}
-            {homeIndexSection}
-            {homeDetailsSection}
+            {homeGuideSection}
 
             <section
               className="trust-band"
@@ -4106,27 +3996,24 @@ export function BoosterMarket({
               aria-label="Controles de confianza"
             >
               <article>
-                <LockKeyhole size={22} aria-hidden />
-                <h3>Usuarios registrados</h3>
+                <Eye size={22} aria-hidden />
+                <h3>Todo visible</h3>
                 <p>
-                  Los usuarios entran antes de abrir cajas y el admin usa el
-                  mismo login.
+                  Revisa los premios y sus probabilidades antes de abrir.
                 </p>
               </article>
               <article>
-                <Info size={22} aria-hidden />
-                <h3>Odds auditables</h3>
+                <Dice5 size={22} aria-hidden />
+                <h3>Resultado claro</h3>
                 <p>
-                  Los porcentajes se muestran por premio y se normalizan al
-                  abrir.
+                  La ruleta termina sobre el mismo premio que recibes.
                 </p>
               </article>
               <article>
-                <ShoppingCart size={22} aria-hidden />
-                <h3>Venta responsable</h3>
+                <Trophy size={22} aria-hidden />
+                <h3>Tu premio, tu decision</h3>
                 <p>
-                  Antes de pagos reales hay que revisar terminos, edad,
-                  impuestos y azar.
+                  Guardalo, vendelo por saldo o solicita el retiro fisico.
                 </p>
               </article>
             </section>
@@ -4147,6 +4034,35 @@ export function BoosterMarket({
         {view === "profile" && profileSection}
         {siteFooter}
       </div>
+
+      {homeAuthOpen && !session && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setHomeAuthOpen(false)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setHomeAuthOpen(false);
+          }}
+          role="presentation"
+        >
+          <article
+            aria-label="Acceso a Pullario"
+            aria-modal="true"
+            className="utility-modal home-auth-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <button
+              aria-label="Cerrar acceso"
+              className="modal-close"
+              onClick={() => setHomeAuthOpen(false)}
+              type="button"
+            >
+              <X size={18} aria-hidden />
+            </button>
+            {authPanel}
+          </article>
+        </div>
+      )}
 
       {walletOpen && (
         <div
