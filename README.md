@@ -1,20 +1,40 @@
-# HitShelf TCG Boosters
+# Pullario TCG Boosters
 
 Prototype marketplace for TCG booster openings inspired by case-opening flows.
 
 The first version includes:
 
-- Booster selection for One Piece, Pokemon, Magic, and mixed TCG pools.
-- Published rarity odds, hit chance, expected value, and value ranges.
-- Client-side opening simulator for 1, 3, 5, or 10 boosters.
-- Pricing console that relates expected value, operating reserve, and margin.
-- Trust/compliance prompts for inventory locking, odds publishing, and responsible sales.
+- Home page with registered-user login and available boosters.
+- Booster detail pages with roulette opening and visible card probabilities.
+- Admin page for creating MySQL-backed boosters.
+- Profile page for local users/admins.
+- Dedicated card search page for One Piece, Pokemon, and Magic.
 
 ## Local Development
 
 ```bash
 npm run dev
 ```
+
+In another terminal, run the local MySQL API:
+
+```bash
+npm run api
+```
+
+Copy `.env.example` to `.env.local` and fill `MYSQL_*`, `ADMIN_USERNAME`, and
+`ADMIN_PASSWORD`. The frontend uses `NEXT_PUBLIC_LOCAL_API_URL` to reach the
+local API, defaulting to `http://localhost:4000`. When you choose the public
+domain, set `NEXT_PUBLIC_SITE_URL` so SEO files such as `sitemap.xml` and
+`robots.txt` use the final URL.
+
+Local pages:
+
+- `/` available boosters and login/register
+- `/packs/[packId]` booster opening
+- `/cards` card search
+- `/admin` booster creator
+- `/profile` user/admin profile
 
 ## Validation
 

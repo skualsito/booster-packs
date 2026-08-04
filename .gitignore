@@ -44,3 +44,5 @@ tsconfig.tsbuildinfo
 
 # local Codex preview logs
 .codex-dev.*.log
+.codex-dev-*.log
+.codex-api-*.log

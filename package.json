@@ -1,5 +1,5 @@
 {
-  "name": "hitshelf-tcg-boosters",
+  "name": "pullario-tcg-boosters",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -7,6 +7,7 @@
   },
   "scripts": {
     "dev": "vinext dev",
+    "api": "node server/local-api.mjs",
     "build": "vinext build",
     "start": "vinext start",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
@@ -16,6 +17,7 @@
   "dependencies": {
     "drizzle-orm": "0.45.2",
     "lucide-react": "^0.468.0",
+    "mysql2": "^3.23.1",
     "next": "16.2.6",
     "react": "19.2.6",
     "react-dom": "19.2.6"
