@@ -2122,6 +2122,25 @@ export function BoosterMarket({
       ...weightedPick(selectedPack.items),
       spinKey: `${runId}-${index}-${crypto.randomUUID()}`,
     }));
+    const showcaseHitCandidates = selectedPack.items.filter(
+      (item) =>
+        item.slotId !== winner.slotId &&
+        normalizedProbability(item, selectedPack) < HIT_PROBABILITY_THRESHOLD,
+    );
+    const showcaseHit = showcaseHitCandidates.length
+      ? showcaseHitCandidates[
+          Math.floor(Math.random() * showcaseHitCandidates.length)
+        ]
+      : undefined;
+
+    if (showcaseHit) {
+      const showcaseIndex = targetIndex + (Math.random() < 0.5 ? -2 : 2);
+      strip[showcaseIndex] = {
+        ...showcaseHit,
+        spinKey: `${runId}-showcase-hit-${crypto.randomUUID()}`,
+      };
+    }
+
     strip[targetIndex] = {
       ...winner,
       spinKey: `${runId}-winner-${crypto.randomUUID()}`,
