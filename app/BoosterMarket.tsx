@@ -114,7 +114,7 @@ type UserCardItem = {
   packName: string;
   card: ExternalCard;
   valueUsd: number;
-  status: "owned" | "sold" | "withdrawn";
+  status: "owned" | "waiting_stock" | "sold" | "withdrawn";
   acquiredAt?: string;
 };
 
@@ -135,13 +135,14 @@ type ShopOrderItem = {
   packName: string;
   card: ExternalCard;
   valueUsd: number;
-  status: "owned" | "sold" | "withdrawn";
+  status: "owned" | "waiting_stock" | "sold" | "withdrawn";
   acquiredAt?: string;
 };
 
 type ShopOrdersResponse = {
   orders?: ShopOrderItem[];
   reservedCount?: number;
+  waitingStockCount?: number;
   withdrawnCount?: number;
   soldCount?: number;
   error?: string;
@@ -312,14 +313,16 @@ const roleLabels: Record<UserRole, string> = {
 
 const cardStatusLabels: Record<UserCardItem["status"], string> = {
   owned: "Disponible",
+  waiting_stock: "Esperando stock",
   sold: "Vendida",
   withdrawn: "Retirada",
 };
 
 const orderStatusLabels: Record<UserCardItem["status"], string> = {
-  owned: "Reservada",
+  owned: "Ganada",
+  waiting_stock: "Esperando stock",
   sold: "Vendida",
-  withdrawn: "Retiro pedido",
+  withdrawn: "Retiro confirmado",
 };
 
 const isSellerRole = (role?: UserRole) => role === "admin";
@@ -1255,7 +1258,9 @@ export function BoosterMarket({
   );
   const draftExpectedValue = packExpectedValue({ items: draftItems });
   const draftMargin = draftPrice - draftExpectedValue;
-  const ownedWonCards = wonCards.filter((item) => item.status === "owned");
+  const ownedWonCards = wonCards.filter(
+    (item) => item.status === "owned" || item.status === "waiting_stock",
+  );
   const ownedWonCardsValue = ownedWonCards.reduce(
     (total, item) => total + Math.max(0, item.valueUsd),
     0,
@@ -1266,6 +1271,9 @@ export function BoosterMarket({
   );
   const reservedOrderCount = shopOrders.filter(
     (item) => item.status === "owned",
+  ).length;
+  const waitingStockOrderCount = shopOrders.filter(
+    (item) => item.status === "waiting_stock",
   ).length;
   const withdrawnOrderCount = shopOrders.filter(
     (item) => item.status === "withdrawn",
@@ -1867,14 +1875,25 @@ export function BoosterMarket({
           },
         },
       );
-      const payload = (await response.json()) as { error?: string };
+      const payload = (await response.json()) as {
+        error?: string;
+        waitingForStock?: boolean;
+      };
 
       if (!response.ok || payload.error) {
         throw new Error(payload.error ?? "No se pudo retirar el premio.");
       }
 
       void loadWonCards();
-      setWonCardsMessage("Premio marcado para retiro fisico.");
+      if (payload.waitingForStock) {
+        setWonCardsMessage(
+          "No hay stock disponible en este momento. Tu retiro queda pendiente y te notificaremos cuando vuelva a haber stock.",
+        );
+      } else {
+        setWonCardsMessage(
+          "Retiro confirmado. La unidad fue descontada del stock.",
+        );
+      }
     } catch (error) {
       setWonCardsMessage(
         error instanceof Error ? error.message : "No se pudo retirar el premio.",
@@ -2871,7 +2890,7 @@ export function BoosterMarket({
           : view === "admin-packs"
             ? "Arma y edita cajas usando unicamente premios disponibles en tu stock."
             : view === "admin-orders"
-              ? "Revisa los premios ganados por usuarios, reservados, vendidos o pedidos para retiro."
+              ? "Revisa los premios ganados, vendidos, pendientes de stock o confirmados para retiro."
               : "Administra stock, cajas publicadas y premios ganados por usuarios desde secciones separadas."}
       </p>
       {adminNavigation}
@@ -3085,8 +3104,11 @@ export function BoosterMarket({
           <Link className="admin-dashboard-card" href="/admin/orders">
             <Trophy size={22} aria-hidden />
             <span className="eyebrow">Pedidos</span>
-            <strong>{reservedOrderCount} premios reservados</strong>
-            <small>{withdrawnOrderCount} pedidas para retiro fisico.</small>
+            <strong>{reservedOrderCount} premios disponibles</strong>
+            <small>
+              {waitingStockOrderCount} esperando stock y {withdrawnOrderCount}{" "}
+              retiros confirmados.
+            </small>
           </Link>
         </div>
       ) : (
@@ -3619,11 +3641,15 @@ export function BoosterMarket({
         <div className="orders-panel">
           <div className="admin-metrics wide">
             <span>
-              <small>Reservadas</small>
+              <small>Ganadas</small>
               <strong>{reservedOrderCount}</strong>
             </span>
             <span>
-              <small>Retiro pedido</small>
+              <small>Esperando stock</small>
+              <strong>{waitingStockOrderCount}</strong>
+            </span>
+            <span>
+              <small>Retiro confirmado</small>
               <strong>{withdrawnOrderCount}</strong>
             </span>
             <span>
@@ -3721,7 +3747,13 @@ export function BoosterMarket({
         <span>
           <small>Para retirar</small>
           <strong>
-            {wonCards.filter((item) => item.status === "withdrawn").length}
+            {
+              wonCards.filter(
+                (item) =>
+                  item.status === "waiting_stock" ||
+                  item.status === "withdrawn",
+              ).length
+            }
           </strong>
         </span>
       </div>
@@ -3761,7 +3793,8 @@ export function BoosterMarket({
                 </small>
                 <small>Ganada: {formatCardDate(cardItem.acquiredAt)}</small>
               </div>
-              {cardItem.status === "owned" && (
+              {(cardItem.status === "owned" ||
+                cardItem.status === "waiting_stock") && (
                 <div className="won-card-actions">
                   <button
                     disabled={wonCardBusyId === cardItem.id}
@@ -3775,7 +3808,9 @@ export function BoosterMarket({
                     onClick={() => void withdrawWonCard(cardItem.id)}
                     type="button"
                   >
-                    Retirar
+                    {cardItem.status === "waiting_stock"
+                      ? "Reintentar retiro"
+                      : "Retirar"}
                   </button>
                 </div>
               )}
@@ -4227,6 +4262,11 @@ export function BoosterMarket({
                       />
                     </button>
                     <div>
+                      {cardItem.status === "waiting_stock" && (
+                        <span className="status-chip waiting_stock">
+                          {cardStatusLabels.waiting_stock}
+                        </span>
+                      )}
                       <span
                         className={`prize-type-chip ${itemTypeOf(cardItem.card)}`}
                       >
@@ -4257,7 +4297,9 @@ export function BoosterMarket({
                         onClick={() => void withdrawWonCard(cardItem.id)}
                         type="button"
                       >
-                        Retirar
+                        {cardItem.status === "waiting_stock"
+                          ? "Reintentar retiro"
+                          : "Retirar"}
                       </button>
                     </div>
                   </article>

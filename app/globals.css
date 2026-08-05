@@ -4352,6 +4352,16 @@ button:disabled {
     border-radius: 0;
   }
 
+  .admin-metrics.wide {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .status-chip.waiting_stock {
+    background: rgba(231, 183, 95, 0.11);
+    border-color: rgba(231, 183, 95, 0.3);
+    color: #f0d49b;
+  }
+
   @media (max-width: 980px) {
     .app-header {
       align-items: stretch;
@@ -4381,6 +4391,10 @@ button:disabled {
 
     .search-band {
       grid-template-columns: 1fr;
+    }
+
+    .admin-metrics.wide {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 

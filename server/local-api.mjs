@@ -188,13 +188,17 @@ async function migrate(connectionPool) {
       pack_name VARCHAR(160) NULL,
       card_json JSON NOT NULL,
       value_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
-      status ENUM('owned', 'sold', 'withdrawn') NOT NULL DEFAULT 'owned',
+      status ENUM('owned', 'waiting_stock', 'sold', 'withdrawn') NOT NULL DEFAULT 'owned',
       acquired_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX user_cards_user_idx (user_id),
       INDEX user_cards_status_idx (status)
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
   `);
+
+  await connectionPool.query(
+    "ALTER TABLE user_cards MODIFY status ENUM('owned', 'waiting_stock', 'sold', 'withdrawn') NOT NULL DEFAULT 'owned'",
+  );
 }
 
 async function migrateExistingTables(connectionPool) {
@@ -604,12 +608,20 @@ async function listUserCards(session) {
     [session.id],
   );
   const cards = rows.map(publicUserCard);
-  const ownedCards = cards.filter((item) => item.status === "owned");
+  const availableCards = cards.filter(
+    (item) => item.status === "owned" || item.status === "waiting_stock",
+  );
 
   return {
     cards,
-    totalValueUsd: ownedCards.reduce((total, item) => total + item.valueUsd, 0),
-    ownedValueUsd: ownedCards.reduce((total, item) => total + item.valueUsd, 0),
+    totalValueUsd: availableCards.reduce(
+      (total, item) => total + item.valueUsd,
+      0,
+    ),
+    ownedValueUsd: availableCards.reduce(
+      (total, item) => total + item.valueUsd,
+      0,
+    ),
     lifetimeValueUsd: cards.reduce((total, item) => total + item.valueUsd, 0),
   };
 }
@@ -708,6 +720,8 @@ async function listShopOrders() {
   return {
     orders,
     reservedCount: orders.filter((item) => item.status === "owned").length,
+    waitingStockCount: orders.filter((item) => item.status === "waiting_stock")
+      .length,
     withdrawnCount: orders.filter((item) => item.status === "withdrawn").length,
     soldCount: orders.filter((item) => item.status === "sold").length,
   };
@@ -915,42 +929,7 @@ async function openPackForUser(packId, session) {
       );
     }
 
-    const cardKeys = items.map((item) => stockCardKey(item.card));
-    const placeholders = cardKeys.map(() => "?").join(",");
-    const [stockRows] = await connection.execute(
-      `
-        SELECT id, card_key, quantity
-        FROM shop_card_stock
-        WHERE shop_id = ? AND card_key IN (${placeholders})
-        FOR UPDATE
-      `,
-      [shopId, ...cardKeys],
-    );
-    const stockByKey = new Map(
-      stockRows.map((row) => [
-        row.card_key,
-        { id: Number(row.id), quantity: Number(row.quantity ?? 0) },
-      ]),
-    );
-    const eligibleItems = items.filter((item) => {
-      const stock = stockByKey.get(stockCardKey(item.card));
-      return stock && stock.quantity > 0;
-    });
-
-    if (!eligibleItems.length) {
-      throw Object.assign(new Error("Esta caja no tiene stock disponible."), {
-        status: 409,
-      });
-    }
-
-    const winner = weightedPick(eligibleItems);
-    const winnerStock = stockByKey.get(stockCardKey(winner.card));
-
-    if (!winnerStock) {
-      throw Object.assign(new Error("El premio ganador no tiene stock."), {
-        status: 409,
-      });
-    }
+    const winner = weightedPick(items);
 
     await connection.execute(
       "UPDATE users SET balance_usd = balance_usd - ? WHERE id = ?",
@@ -962,10 +941,6 @@ async function openPackForUser(packId, session) {
         [packPrice, shopId],
       );
     }
-    await connection.execute(
-      "UPDATE shop_card_stock SET quantity = quantity - 1 WHERE id = ? AND quantity > 0",
-      [winnerStock.id],
-    );
     const [insertResult] = await connection.execute(
       `
         INSERT INTO user_cards (user_id, pack_id, pack_name, card_json, value_usd, status)
@@ -1219,7 +1194,7 @@ async function sellUserCard(session, cardId) {
   try {
     await connection.beginTransaction();
     const [rows] = await connection.execute(
-      "SELECT id, value_usd FROM user_cards WHERE id = ? AND user_id = ? AND status = 'owned' FOR UPDATE",
+      "SELECT id, value_usd FROM user_cards WHERE id = ? AND user_id = ? AND status IN ('owned', 'waiting_stock') FOR UPDATE",
       [cardId, session.id],
     );
     const card = rows[0];
@@ -1257,18 +1232,81 @@ async function sellUserCard(session, cardId) {
 
 async function withdrawUserCard(session, cardId) {
   const connectionPool = await getPool();
-  const [result] = await connectionPool.execute(
-    "UPDATE user_cards SET status = 'withdrawn' WHERE id = ? AND user_id = ? AND status = 'owned'",
-    [cardId, session.id],
-  );
+  const connection = await connectionPool.getConnection();
 
-  if (!result.affectedRows) {
-    throw Object.assign(new Error("No encontre ese premio en tu inventario."), {
-      status: 404,
-    });
+  try {
+    await connection.beginTransaction();
+    const [cardRows] = await connection.execute(
+      `
+        SELECT id, card_json, status, pack_id
+        FROM user_cards
+        WHERE id = ?
+          AND user_id = ?
+          AND status IN ('owned', 'waiting_stock')
+        FOR UPDATE
+      `,
+      [cardId, session.id],
+    );
+    const userCard = cardRows[0];
+
+    if (!userCard) {
+      throw Object.assign(new Error("No encontre ese premio en tu inventario."), {
+        status: 404,
+      });
+    }
+
+    const [packRows] = await connection.execute(
+      "SELECT shop_id FROM booster_packs WHERE id = ? LIMIT 1",
+      [userCard.pack_id],
+    );
+    const shopId = Number(packRows[0]?.shop_id ?? 0);
+
+    if (!shopId) {
+      throw Object.assign(
+        new Error("No pude identificar el stock asociado a este premio."),
+        { status: 409 },
+      );
+    }
+
+    const cardKey = stockCardKey(parseCard(userCard.card_json));
+    const [stockRows] = await connection.execute(
+      `
+        SELECT id, quantity
+        FROM shop_card_stock
+        WHERE shop_id = ? AND card_key = ?
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [shopId, cardKey],
+    );
+    const stockItem = stockRows[0];
+
+    if (!stockItem || Number(stockItem.quantity ?? 0) <= 0) {
+      await connection.execute(
+        "UPDATE user_cards SET status = 'waiting_stock' WHERE id = ?",
+        [cardId],
+      );
+      await connection.commit();
+      return { ok: true, waitingForStock: true };
+    }
+
+    await connection.execute(
+      "UPDATE shop_card_stock SET quantity = quantity - 1 WHERE id = ? AND quantity > 0",
+      [stockItem.id],
+    );
+    await connection.execute(
+      "UPDATE user_cards SET status = 'withdrawn' WHERE id = ?",
+      [cardId],
+    );
+    await connection.commit();
+
+    return { ok: true, waitingForStock: false };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
   }
-
-  return { ok: true };
 }
 
 async function handleRequest(request, response) {
