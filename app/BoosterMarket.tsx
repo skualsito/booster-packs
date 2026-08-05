@@ -2134,7 +2134,10 @@ export function BoosterMarket({
       : undefined;
 
     if (showcaseHit) {
-      const showcaseIndex = targetIndex + (Math.random() < 0.5 ? -2 : 2);
+      const showcaseOffsets = [-4, -3, -2, 2, 3, 4];
+      const showcaseOffset =
+        showcaseOffsets[Math.floor(Math.random() * showcaseOffsets.length)];
+      const showcaseIndex = targetIndex + showcaseOffset;
       strip[showcaseIndex] = {
         ...showcaseHit,
         spinKey: `${runId}-showcase-hit-${crypto.randomUUID()}`,
