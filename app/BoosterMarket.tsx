@@ -723,6 +723,8 @@ const topItem = (pack: BoosterPack) =>
 const TARGET_PAYOUT_RATE = 0.7;
 const MAX_PRICE_WEIGHT_EXPONENT = 8;
 const PREMIUM_PROBABILITY_MASS = 12;
+const PREMIUM_EV_FLOOR_RATE = 0.015;
+const PREMIUM_PRICE_WEIGHT_EXPONENT = 2;
 const MINIMUM_ITEM_PROBABILITY = 0.01;
 
 const weightedPick = (items: PackItem[]) => {
@@ -826,16 +828,27 @@ const tieredProbabilities = (
     return probabilities.map(() => 100 / items.length);
   }
 
-  const premiumShareTotal = premiumItems.reduce(
-    (total, _item, index) => total + index + 1,
+  const premiumWeights = premiumItems.map(
+    (item) => 1 / Math.pow(item.price, PREMIUM_PRICE_WEIGHT_EXPONENT),
+  );
+  const premiumShareTotal = premiumWeights.reduce(
+    (total, weight) => total + weight,
     0,
   );
   const premiumAveragePrice = premiumShareTotal
     ? premiumItems.reduce(
-        (total, item, index) => total + item.price * (index + 1),
+        (total, item, index) =>
+          total + item.price * (premiumWeights[index] ?? 0),
         0,
       ) / premiumShareTotal
     : 0;
+  const premiumExpectedValueBudget =
+    targetEv * (PREMIUM_EV_FLOOR_RATE / TARGET_PAYOUT_RATE);
+  const premiumExpectedValuePerMass = premiumAveragePrice / 100;
+  const minimumPremiumMass =
+    premiumExpectedValuePerMass > 0
+      ? premiumExpectedValueBudget / premiumExpectedValuePerMass
+      : 0;
   const cheapestRegularPrice = Math.min(
     ...regularItems.map((item) => item.price),
   );
@@ -846,17 +859,17 @@ const tieredProbabilities = (
         100
       : PREMIUM_PROBABILITY_MASS;
   const premiumMass = Math.max(
-    0,
+    Math.min(PREMIUM_PROBABILITY_MASS, minimumPremiumMass),
     Math.min(
       PREMIUM_PROBABILITY_MASS,
-      maximumProfitablePremiumMass * 0.85,
+      Math.max(0, maximumProfitablePremiumMass * 0.85),
     ),
   );
 
   premiumItems.forEach((item, index) => {
     probabilities[item.index] =
       premiumShareTotal > 0
-        ? (premiumMass * (index + 1)) / premiumShareTotal
+        ? (premiumMass * (premiumWeights[index] ?? 0)) / premiumShareTotal
         : 0;
   });
 
