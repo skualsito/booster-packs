@@ -3,6 +3,7 @@
 
 import {
   ArrowLeft,
+  ArrowRight,
   Boxes,
   Database,
   Dice5,
@@ -1210,6 +1211,9 @@ export function BoosterMarket({
   const selectedPackExists = packs.some((pack) => pack.id === activePackId);
   const selectedPack = packs.find((pack) => pack.id === activePackId) ?? packs[0];
   const selectedTopItem = topItem(selectedPack);
+  const heroShowcaseItems = [...selectedPack.items]
+    .sort((a, b) => (b.card.priceUsd ?? 0) - (a.card.priceUsd ?? 0))
+    .slice(0, 4);
   const rouletteBelongsToSelectedPack = roulette.packId === selectedPack.id;
   const visibleRouletteItems = rouletteBelongsToSelectedPack ? roulette.items : [];
   const visibleRouletteOffset = rouletteBelongsToSelectedPack ? roulette.offset : 0;
@@ -2335,9 +2339,6 @@ export function BoosterMarket({
               key={pack.id}
               style={{ "--accent": pack.accent } as CSSProperties}
             >
-              <span className="pack-source">
-                {gameLabels[pack.game]} - Pullario
-              </span>
               <span className="pack-preview">
                 {top?.card.imageUrl ? (
                   <img src={cardImage(top.card)} alt="" />
@@ -2345,9 +2346,14 @@ export function BoosterMarket({
                   <Database size={26} aria-hidden />
                 )}
               </span>
-              <span className="pack-name">{pack.name}</span>
-              <span className="pack-series">{pack.series}</span>
-              <span className="pack-stats">
+              <span className="pack-card-copy">
+                <span className="pack-source">
+                  {gameLabels[pack.game]} · Pullario
+                </span>
+                <span className="pack-name">{pack.name}</span>
+                <span className="pack-series">{pack.series}</span>
+              </span>
+              <span className="pack-card-footer">
                 <span>
                   <small>Precio</small>
                   <strong>{formatUsd.format(pack.price)}</strong>
@@ -2355,6 +2361,9 @@ export function BoosterMarket({
                 <span>
                   <small>Hit</small>
                   <strong>{formatPercent.format(packHitChance(pack))}%</strong>
+                </span>
+                <span className="pack-open-icon" aria-hidden>
+                  <ArrowRight size={19} />
                 </span>
               </span>
             </Link>
@@ -3952,15 +3961,26 @@ export function BoosterMarket({
         {view === "home" && (
           <>
             <section className="market-hero" aria-labelledby="main-title">
+              <div className="hero-product-stage" aria-hidden>
+                {heroShowcaseItems.map((item, index) => (
+                  <img
+                    className={`hero-product hero-product-${index + 1}`}
+                    key={`hero-${item.slotId}`}
+                    src={cardImage(item.card)}
+                    alt=""
+                    onError={handleImageError(item.card.game, itemTypeOf(item.card))}
+                  />
+                ))}
+              </div>
               <div className="hero-copy">
                 <div className="status-pill">
                   <Sparkles size={16} aria-hidden />
                   One Piece · Pokemon · Magic
                 </div>
-                <h1 id="main-title">Cajas TCG, premio asegurado</h1>
+                <h1 id="main-title">Cajas TCG para coleccionistas</h1>
                 <p>
-                  Elige una caja, conoce todo lo que puede salir y descubre tu
-                  premio en la ruleta de Pullario.
+                  Premios reales, probabilidades visibles y una apertura que
+                  termina en tu inventario.
                 </p>
                 <div className="hero-actions" aria-label="Acciones principales">
                   <Link className="primary-action" href="#cajas">
@@ -3971,21 +3991,42 @@ export function BoosterMarket({
                     <Search size={18} aria-hidden />
                     Buscar cartas
                   </Link>
-                  {!session && (
-                    <button
-                      className="secondary-action hero-login-action"
-                      onClick={() => setHomeAuthOpen(true)}
-                      type="button"
-                    >
-                      <LogIn size={18} aria-hidden />
-                      Entrar
-                    </button>
-                  )}
                 </div>
               </div>
-
-              <div className="hero-side">{authPanel}</div>
             </section>
+
+            {!session && (
+              <section className="home-access-band" aria-label="Acceso a Pullario">
+                <div>
+                  <span className="eyebrow">Tu cuenta</span>
+                  <h2>Entra para abrir, guardar y retirar premios.</h2>
+                </div>
+                <div className="home-access-actions">
+                  <button
+                    className="secondary-action compact"
+                    onClick={() => {
+                      setAuthMode("login");
+                      setHomeAuthOpen(true);
+                    }}
+                    type="button"
+                  >
+                    <LogIn size={17} aria-hidden />
+                    Entrar
+                  </button>
+                  <button
+                    className="primary-action compact"
+                    onClick={() => {
+                      setAuthMode("register");
+                      setHomeAuthOpen(true);
+                    }}
+                    type="button"
+                  >
+                    <UserPlus size={17} aria-hidden />
+                    Crear cuenta
+                  </button>
+                </div>
+              </section>
+            )}
 
             {packListing}
             {homeGuideSection}

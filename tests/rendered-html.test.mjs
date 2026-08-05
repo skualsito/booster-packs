@@ -32,12 +32,12 @@ test("server-renders the Pullario marketplace", async () => {
     html,
     /<title>Cajas TCG con probabilidades visibles \| Pullario<\/title>/i,
   );
-  assert.match(html, /Cajas TCG, premio asegurado/);
+  assert.match(html, /Cajas TCG para coleccionistas/);
   assert.match(html, /Romance Dawn Chase/);
   assert.match(html, /Kanto Vault/);
   assert.match(html, /Cross-TCG Jackpot/);
   assert.match(html, /Cajas disponibles/);
-  assert.match(html, /Registrarse/);
+  assert.match(html, /Crear cuenta/);
   assert.match(html, /De la caja a tu inventario/);
   assert.doesNotMatch(html, /Premios en pools|Precio demo mas bajo|Mejor hit chance/);
   assert.doesNotMatch(html, /Crear shop|Nombre del shop|Ver shop/);
