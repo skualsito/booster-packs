@@ -723,6 +723,7 @@ const topItem = (pack: BoosterPack) =>
 const TARGET_PAYOUT_RATE = 0.7;
 const MAX_PRICE_WEIGHT_EXPONENT = 8;
 const PREMIUM_PROBABILITY_MASS = 12;
+const MINIMUM_ITEM_PROBABILITY = 0.01;
 
 const weightedPick = (items: PackItem[]) => {
   const total = items.reduce(
@@ -746,21 +747,53 @@ const weightedPick = (items: PackItem[]) => {
 };
 
 const roundProbabilities = (probabilities: number[]) => {
-  const rounded = probabilities.map((probability) =>
-    probability > 0 ? Math.max(0.001, Number(probability.toFixed(3))) : 0,
-  );
-  const total = rounded.reduce((sum, probability) => sum + probability, 0);
-  const adjustment = Number((100 - total).toFixed(3));
+  if (!probabilities.length) {
+    return probabilities;
+  }
 
-  if (rounded.length && adjustment) {
+  const minimum = Math.min(
+    MINIMUM_ITEM_PROBABILITY,
+    Number((100 / probabilities.length).toFixed(3)),
+  );
+  const rounded = probabilities.map((probability) =>
+    Math.max(minimum, Number(Math.max(0, probability).toFixed(3))),
+  );
+  let adjustment = Number(
+    (100 - rounded.reduce((sum, probability) => sum + probability, 0)).toFixed(
+      3,
+    ),
+  );
+
+  if (adjustment > 0) {
     const targetIndex = rounded.reduce(
       (bestIndex, probability, index) =>
         probability > rounded[bestIndex] ? index : bestIndex,
       0,
     );
     rounded[targetIndex] = Number(
-      Math.max(0, rounded[targetIndex] + adjustment).toFixed(3),
+      (rounded[targetIndex] + adjustment).toFixed(3),
     );
+    adjustment = 0;
+  }
+
+  if (adjustment < 0) {
+    const indexesByProbability = rounded
+      .map((probability, index) => ({ index, probability }))
+      .sort((a, b) => b.probability - a.probability);
+
+    for (const { index } of indexesByProbability) {
+      const removable = Number((rounded[index] - minimum).toFixed(3));
+      const amount = Math.min(removable, Math.abs(adjustment));
+
+      if (amount > 0) {
+        rounded[index] = Number((rounded[index] - amount).toFixed(3));
+        adjustment = Number((adjustment + amount).toFixed(3));
+      }
+
+      if (adjustment === 0) {
+        break;
+      }
+    }
   }
 
   return rounded;
