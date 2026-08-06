@@ -7626,3 +7626,346 @@ a:has(> .material-icon) {
     padding-bottom: 230px;
   }
 }
+
+/* V3 spacing pass: one rhythm shared by storefront and administration. */
+.market-shell.design-v3 {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --page-gutter: clamp(20px, 4vw, 56px);
+}
+
+.design-v3 .app-header {
+  padding: 10px var(--page-gutter);
+}
+
+.design-v3 .market-hero {
+  padding: clamp(56px, 7vw, 88px) var(--page-gutter);
+}
+
+.design-v3 .hero-copy {
+  padding-left: 0;
+}
+
+.design-v3 .hero-copy > p {
+  margin-top: var(--space-5);
+}
+
+.design-v3 .hero-actions {
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+}
+
+.design-v3 .home-access-band {
+  gap: var(--space-6);
+  margin-bottom: var(--space-6);
+  padding: var(--space-6) var(--page-gutter);
+}
+
+.design-v3 .home-access-actions,
+.design-v3 .auth-actions,
+.design-v3 .admin-actions,
+.design-v3 .open-actions,
+.design-v3 .saved-pack-actions {
+  gap: var(--space-3);
+}
+
+.design-v3 .case-layout,
+.design-v3 .contents-band,
+.design-v3 .admin-band,
+.design-v3 .profile-band {
+  padding: var(--space-8) var(--page-gutter);
+}
+
+.design-v3 .home-guide-band,
+.design-v3 .trust-band {
+  padding-left: var(--page-gutter);
+  padding-right: var(--page-gutter);
+}
+
+.design-v3 .case-header,
+.design-v3 .section-heading,
+.design-v3 .page-heading {
+  gap: var(--space-5);
+  padding-bottom: var(--space-5);
+}
+
+.design-v3 .pack-grid,
+.design-v3 .contents-grid,
+.design-v3 .admin-dashboard-grid {
+  gap: var(--space-5);
+  margin-top: var(--space-6);
+}
+
+.design-v3 .pack-preview {
+  margin: var(--space-3) var(--space-3) 0;
+}
+
+.design-v3 .pack-card-copy {
+  gap: 6px;
+  padding: var(--space-4) var(--space-4) var(--space-3);
+}
+
+.design-v3 .pack-card-footer {
+  margin-inline: var(--space-4);
+  padding: var(--space-3) 0 var(--space-4);
+}
+
+.design-v3 .content-card {
+  padding: var(--space-3);
+}
+
+.design-v3 .search-band {
+  column-gap: var(--space-8);
+  padding: var(--space-8) var(--page-gutter);
+}
+
+.design-v3 .search-copy {
+  padding-top: var(--space-2);
+}
+
+.design-v3 .search-copy p {
+  margin-top: var(--space-5);
+}
+
+.design-v3 .search-console {
+  padding: var(--space-6);
+}
+
+.design-v3 .search-row {
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.design-v3 .search-results-toolbar {
+  margin-top: var(--space-3);
+}
+
+.design-v3 .result-grid {
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding-right: var(--space-1);
+}
+
+.design-v3 .result-grid article {
+  padding: var(--space-3);
+}
+
+.design-v3 .opening-stage {
+  gap: var(--space-5);
+  margin-top: var(--space-6);
+}
+
+.design-v3 .stage-main,
+.design-v3 .case-summary {
+  padding: var(--space-5);
+}
+
+.design-v3 .case-summary {
+  padding-left: var(--space-5);
+}
+
+.design-v3 .stage-top {
+  gap: var(--space-4);
+  padding-bottom: var(--space-4);
+}
+
+.design-v3 .roulette-window {
+  margin-top: var(--space-5);
+}
+
+.design-v3 .open-actions {
+  margin-top: var(--space-5);
+}
+
+.design-v3 .metric-strip,
+.design-v3 .recent-drops {
+  gap: var(--space-3);
+}
+
+.design-v3 .recent-drops {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+}
+
+.design-v3 .admin-intro > p {
+  margin-top: var(--space-3);
+  max-width: 780px;
+}
+
+.design-v3 .admin-nav {
+  gap: var(--space-1);
+  margin-top: var(--space-5);
+  padding: 6px;
+}
+
+.design-v3 .admin-dashboard-grid,
+.design-v3 .stock-page-grid,
+.design-v3 .admin-grid,
+.design-v3 .profile-layout {
+  gap: var(--space-6);
+  margin-top: var(--space-6);
+}
+
+.design-v3 .admin-dashboard-card {
+  gap: var(--space-3);
+  padding: var(--space-6);
+}
+
+.design-v3 .admin-form,
+.design-v3 .stock-panel,
+.design-v3 .draft-panel,
+.design-v3 .saved-packs,
+.design-v3 .orders-panel,
+.design-v3 .shipments-panel,
+.design-v3 .admin-users-panel,
+.design-v3 .profile-form,
+.design-v3 .profile-inventory-view,
+.design-v3 .login-panel,
+.design-v3 .auth-panel,
+.design-v3 .sealed-stock-form {
+  padding: var(--space-6);
+}
+
+.design-v3 .panel-heading {
+  gap: var(--space-4);
+  padding-bottom: var(--space-4);
+}
+
+.design-v3 .admin-metrics {
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.design-v3 .admin-metrics span {
+  padding: var(--space-3);
+}
+
+.design-v3 .stock-filter-stack,
+.design-v3 .profile-section-nav,
+.design-v3 .inventory-toolbar,
+.design-v3 .shipping-toolbar {
+  margin-top: var(--space-4);
+}
+
+.design-v3 .stock-list,
+.design-v3 .draft-list,
+.design-v3 .order-list,
+.design-v3 .shipment-group-list,
+.design-v3 .inventory-list,
+.design-v3 .won-card-list,
+.design-v3 .saved-pack-list {
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.design-v3 .stock-item,
+.design-v3 .draft-item,
+.design-v3 .saved-pack,
+.design-v3 .order-card,
+.design-v3 .shipment-group,
+.design-v3 .inventory-card,
+.design-v3 .won-card {
+  padding: var(--space-3);
+}
+
+.design-v3 .stock-actions,
+.design-v3 .won-card-actions,
+.design-v3 .shipping-toolbar-actions,
+.design-v3 .shipment-group-footer {
+  gap: var(--space-2);
+}
+
+.design-v3 .profile-form-section + .profile-form-section {
+  margin-top: var(--space-7);
+  padding-top: var(--space-7);
+}
+
+.design-v3 .profile-form-grid,
+.design-v3 .sealed-form-grid,
+.design-v3 .admin-inventory-filters {
+  gap: var(--space-4);
+  margin-top: var(--space-5);
+}
+
+.design-v3 .site-footer {
+  gap: var(--space-7);
+  padding: var(--space-8) var(--page-gutter) 48px;
+}
+
+@media (max-width: 900px) {
+  .market-shell.design-v3 {
+    --page-gutter: 20px;
+  }
+
+  .design-v3 .market-hero {
+    padding: 34px var(--page-gutter) 230px;
+  }
+
+  .design-v3 .home-access-band,
+  .design-v3 .case-layout,
+  .design-v3 .contents-band,
+  .design-v3 .search-band,
+  .design-v3 .admin-band,
+  .design-v3 .profile-band {
+    padding-left: var(--page-gutter);
+    padding-right: var(--page-gutter);
+  }
+
+  .design-v3 .search-band {
+    gap: var(--space-6);
+    padding-bottom: var(--space-7);
+    padding-top: var(--space-7);
+  }
+
+  .design-v3 .opening-stage,
+  .design-v3 .admin-grid,
+  .design-v3 .stock-page-grid,
+  .design-v3 .profile-layout {
+    gap: var(--space-4);
+  }
+}
+
+@media (max-width: 640px) {
+  .design-v3 .case-layout,
+  .design-v3 .contents-band,
+  .design-v3 .admin-band,
+  .design-v3 .profile-band {
+    padding-bottom: 28px;
+    padding-top: 28px;
+  }
+
+  .design-v3 .search-console,
+  .design-v3 .admin-form,
+  .design-v3 .stock-panel,
+  .design-v3 .draft-panel,
+  .design-v3 .saved-packs,
+  .design-v3 .orders-panel,
+  .design-v3 .shipments-panel,
+  .design-v3 .admin-users-panel,
+  .design-v3 .profile-form,
+  .design-v3 .profile-inventory-view,
+  .design-v3 .login-panel,
+  .design-v3 .auth-panel,
+  .design-v3 .sealed-stock-form,
+  .design-v3 .stage-main,
+  .design-v3 .case-summary {
+    padding: var(--space-4);
+  }
+
+  .design-v3 .pack-grid,
+  .design-v3 .contents-grid,
+  .design-v3 .admin-dashboard-grid {
+    gap: var(--space-4);
+    margin-top: var(--space-5);
+  }
+
+  .design-v3 .site-footer {
+    padding: var(--space-7) var(--page-gutter) 40px;
+  }
+}
