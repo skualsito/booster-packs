@@ -75,6 +75,9 @@ test("server-renders dedicated pages", async () => {
 
   const upgrader = await render("/upgrader");
   assert.equal(upgrader.status, 200);
+  const changer = await render("/changer");
+  assert.equal(changer.status, 200);
+  assert.match(await changer.text(), /Changer/);
   assert.match(await upgrader.text(), /Convertí tus premios en uno mejor/);
 
 });
@@ -90,6 +93,7 @@ test("serves SEO metadata routes", async () => {
   assert.match(sitemapXml, /<loc>http:\/\/localhost:3000\/<\/loc>/);
   assert.match(sitemapXml, /<loc>http:\/\/localhost:3000\/cards<\/loc>/);
   assert.match(sitemapXml, /<loc>http:\/\/localhost:3000\/upgrader<\/loc>/);
+  assert.match(sitemapXml, /<loc>http:\/\/localhost:3000\/changer<\/loc>/);
 
   const manifest = await render("/manifest.webmanifest");
   assert.equal(manifest.status, 200);

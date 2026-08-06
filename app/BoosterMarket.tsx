@@ -130,7 +130,7 @@ type UserCardItem = {
   packName: string;
   card: ExternalCard;
   valueUsd: number;
-  status: "owned" | "waiting_stock" | "sold" | "withdrawn" | "upgraded";
+  status: "owned" | "waiting_stock" | "sold" | "withdrawn" | "upgraded" | "changed";
   shipmentStatus?: "pending" | "shipped" | "delivered";
   trackingNumber?: string;
   shippedAt?: string;
@@ -164,6 +164,22 @@ type UpgraderPlayResponse = {
   targetQuantity?: number;
   awardedUserCardId?: number | null;
   awardedUserCardIds?: number[];
+  error?: string;
+};
+
+type ChangerPlayResponse = {
+  runId?: string;
+  stakeValueUsd?: number;
+  targetValueUsd?: number;
+  refundUsd?: number;
+  awardedUserCardIds?: number[];
+  targets?: Array<{
+    stockId: number;
+    quantity: number;
+    card: ExternalCard;
+    unitValueUsd: number;
+  }>;
+  user?: LoginResponse["user"];
   error?: string;
 };
 
@@ -328,7 +344,8 @@ type AppView =
   | "admin-users"
   | "profile"
   | "cards"
-  | "upgrader";
+  | "upgrader"
+  | "changer";
 
 type RouletteCard = PackItem & {
   spinKey: string;
@@ -489,6 +506,7 @@ const cardStatusLabels: Record<UserCardItem["status"], string> = {
   sold: "Vendida",
   withdrawn: "Retirada",
   upgraded: "Usada en Upgrader",
+  changed: "Usada en Changer",
 };
 
 const orderStatusLabels: Record<UserCardItem["status"], string> = {
@@ -497,6 +515,7 @@ const orderStatusLabels: Record<UserCardItem["status"], string> = {
   sold: "Vendida",
   withdrawn: "Retiro confirmado",
   upgraded: "Usada en Upgrader",
+  changed: "Usada en Changer",
 };
 
 const isSellerRole = (role?: UserRole) => role === "admin";
@@ -1209,6 +1228,14 @@ export function BoosterMarket({
   const [upgraderOutcome, setUpgraderOutcome] =
     useState<UpgraderPlayResponse | null>(null);
   const upgraderTimerRef = useRef<number | null>(null);
+  const [changerTargets, setChangerTargets] = useState<ShopStockItem[]>([]);
+  const [changerStakeIds, setChangerStakeIds] = useState<number[]>([]);
+  const [changerTargetQuantities, setChangerTargetQuantities] = useState<Record<number, number>>({});
+  const [changerQuery, setChangerQuery] = useState("");
+  const [changerGame, setChangerGame] = useState<PackGame>("mixed");
+  const [changerLoading, setChangerLoading] = useState(false);
+  const [changerSaving, setChangerSaving] = useState(false);
+  const [changerOutcome, setChangerOutcome] = useState<ChangerPlayResponse | null>(null);
   const [inventoryActiveOnly, setInventoryActiveOnly] = useState(false);
   const [inventoryPriceSort, setInventoryPriceSort] = useState<
     "price-desc" | "price-asc"
@@ -1467,6 +1494,39 @@ export function BoosterMarket({
       );
     } finally {
       setUpgraderLoading(false);
+    }
+  }, [session]);
+
+  const loadChangerOptions = useCallback(async () => {
+    setChangerLoading(true);
+    try {
+      const response = await fetch(localApiUrl("/api/changer"), {
+        headers: session
+          ? { Authorization: `Bearer ${session.token}` }
+          : undefined,
+      });
+      const payload = (await response.json()) as UpgraderOptionsResponse;
+
+      if (!response.ok || payload.error) {
+        throw new Error(payload.error ?? "No se pudo cargar el Changer.");
+      }
+
+      if (session) {
+        setWonCards((current) => {
+          const history = current.filter(
+            (item) => item.status !== "owned" && item.status !== "waiting_stock",
+          );
+          return [...(payload.inventory ?? []), ...history];
+        });
+      }
+      setChangerTargets(payload.targets ?? []);
+    } catch (error) {
+      setWonCardsMessageTone("error");
+      setWonCardsMessage(
+        error instanceof Error ? error.message : "No se pudo cargar el Changer.",
+      );
+    } finally {
+      setChangerLoading(false);
     }
   }, [session]);
 
@@ -1815,6 +1875,18 @@ export function BoosterMarket({
     return () => window.clearTimeout(timer);
   }, [loadUpgraderOptions, session, view]);
 
+  useEffect(() => {
+    if (view !== "changer") return;
+    const timer = window.setTimeout(() => void loadChangerOptions(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadChangerOptions, session, view]);
+
+  useEffect(() => {
+    setChangerStakeIds([]);
+    setChangerTargetQuantities({});
+    setChangerOutcome(null);
+  }, [session?.id]);
+
   useEffect(
     () => () => {
       if (upgraderTimerRef.current !== null) {
@@ -2061,6 +2133,45 @@ export function BoosterMarket({
       price <= effectiveUpgraderMaxPrice &&
       gameMatches &&
       queryMatches
+    );
+  });
+  const changerStakeCards = ownedWonCards.filter((item) =>
+    changerStakeIds.includes(item.id),
+  );
+  const changerStakeValue = Number(
+    changerStakeCards
+      .reduce((total, item) => total + Math.max(0, item.valueUsd), 0)
+      .toFixed(2),
+  );
+  const changerSelectedTargets = changerTargets
+    .map((item) => ({
+      item,
+      quantity: changerTargetQuantities[item.id] ?? 0,
+    }))
+    .filter((selection) => selection.quantity > 0);
+  const changerTargetUnits = changerSelectedTargets.reduce(
+    (total, selection) => total + selection.quantity,
+    0,
+  );
+  const changerTargetValue = Number(
+    changerSelectedTargets
+      .reduce(
+        (total, selection) =>
+          total + Number(selection.item.card.priceUsd ?? 0) * selection.quantity,
+        0,
+      )
+      .toFixed(2),
+  );
+  const changerRefund = Number(
+    Math.max(0, changerStakeValue - changerTargetValue).toFixed(2),
+  );
+  const filteredChangerTargets = changerTargets.filter((item) => {
+    const query = changerQuery.trim().toLocaleLowerCase("es");
+    return (
+      (changerGame === "mixed" || item.card.game === changerGame) &&
+      (!query ||
+        item.card.name.toLocaleLowerCase("es").includes(query) ||
+        item.card.setName.toLocaleLowerCase("es").includes(query))
     );
   });
   const visibleInventoryCards = wonCards
@@ -3108,6 +3219,109 @@ export function BoosterMarket({
       );
       void loadWonCards();
       void loadUpgraderOptions();
+    }
+  };
+
+  const toggleChangerStake = (cardId: number) => {
+    if (changerSaving) return;
+    setChangerOutcome(null);
+    setChangerStakeIds((current) => {
+      if (current.includes(cardId)) {
+        return current.filter((id) => id !== cardId);
+      }
+      return current.length >= 20 ? current : [...current, cardId];
+    });
+  };
+
+  const addChangerTarget = (item: ShopStockItem) => {
+    if (!session || changerSaving || !changerStakeIds.length) return;
+    const price = Number(item.card.priceUsd ?? 0);
+    const currentQuantity = changerTargetQuantities[item.id] ?? 0;
+    if (
+      price <= 0 ||
+      currentQuantity >= Math.min(20, item.quantity) ||
+      changerTargetUnits >= 20 ||
+      changerTargetValue + price > changerStakeValue + 0.0001
+    ) {
+      return;
+    }
+    setChangerOutcome(null);
+    setChangerTargetQuantities((current) => ({
+      ...current,
+      [item.id]: (current[item.id] ?? 0) + 1,
+    }));
+  };
+
+  const removeChangerTarget = (stockId: number) => {
+    if (changerSaving) return;
+    setChangerOutcome(null);
+    setChangerTargetQuantities((current) => {
+      const quantity = current[stockId] ?? 0;
+      if (quantity <= 1) {
+        const next = { ...current };
+        delete next[stockId];
+        return next;
+      }
+      return { ...current, [stockId]: quantity - 1 };
+    });
+  };
+
+  const playChanger = async () => {
+    if (!session) {
+      setAuthMode("login");
+      setHomeAuthOpen(true);
+      return;
+    }
+    if (
+      !changerStakeIds.length ||
+      !changerSelectedTargets.length ||
+      changerTargetValue <= 0 ||
+      changerTargetValue > changerStakeValue
+    ) {
+      return;
+    }
+
+    setChangerSaving(true);
+    setChangerOutcome(null);
+    try {
+      const response = await fetch(localApiUrl("/api/changer/play"), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          stakeCardIds: changerStakeIds,
+          targetItems: changerSelectedTargets.map((selection) => ({
+            stockId: selection.item.id,
+            quantity: selection.quantity,
+          })),
+        }),
+      });
+      const payload = (await response.json()) as ChangerPlayResponse;
+      if (!response.ok || payload.error || !payload.runId) {
+        throw new Error(payload.error ?? "No se pudo completar el cambio.");
+      }
+
+      updateSessionUser(payload.user);
+      setChangerOutcome(payload);
+      setChangerStakeIds([]);
+      setChangerTargetQuantities({});
+      setWonCardsMessageTone("success");
+      setWonCardsMessage(
+        payload.refundUsd
+          ? `Cambio completado. Se acreditaron ${formatUsd.format(payload.refundUsd)} en tu cartera.`
+          : "Cambio completado.",
+      );
+      await Promise.all([loadWonCards(), loadChangerOptions()]);
+    } catch (error) {
+      setWonCardsMessageTone("error");
+      setWonCardsMessage(
+        error instanceof Error ? error.message : "No se pudo completar el cambio.",
+      );
+      void loadChangerOptions();
+    } finally {
+      setChangerSaving(false);
     }
   };
 
@@ -4263,6 +4477,7 @@ export function BoosterMarket({
           <strong>Explorar</strong>
           <Link href="/">Cajas</Link>
           <Link href="/upgrader">Upgrader</Link>
+          <Link href="/changer">Changer</Link>
           <Link href="/cards">Cartas</Link>
           <Link href="#como-funciona">Indice</Link>
           <Link href="#confianza">Confianza</Link>
@@ -6201,6 +6416,256 @@ export function BoosterMarket({
     </section>
   );
 
+  const changerSection = (
+    <section className="upgrader-page changer-page page-section" aria-labelledby="changer-title">
+      <div className="upgrader-heading">
+        <span className="eyebrow">Changer</span>
+        <h1 id="changer-title">Cambiá tus premios sin riesgo</h1>
+        <p>
+          Entregá premios de tu inventario y elegí productos por el mismo valor
+          o menos. La diferencia vuelve automáticamente a tu cartera.
+        </p>
+      </div>
+
+      {!session && (
+        <div className="upgrader-guest-notice">
+          <div>
+            <span className="eyebrow">Modo demostración</span>
+            <strong>Iniciá sesión para usar tus premios</strong>
+            <p>Podés explorar los productos disponibles antes de entrar.</p>
+          </div>
+          <button
+            className="primary-action compact"
+            onClick={() => {
+              setAuthMode("login");
+              setHomeAuthOpen(true);
+            }}
+            type="button"
+          >
+            <LogIn size={17} aria-hidden />
+            Entrar
+          </button>
+        </div>
+      )}
+
+      {changerOutcome && (
+        <article className="upgrader-outcome won changer-outcome" role="status">
+          <div className="changer-outcome-images" aria-hidden>
+            {(changerOutcome.targets ?? []).slice(0, 4).map((target) => (
+              <img
+                src={cardImage(target.card)}
+                alt=""
+                key={target.stockId}
+                onError={handleImageError(target.card.game)}
+              />
+            ))}
+          </div>
+          <div>
+            <span>Cambio completado</span>
+            <h2>{changerOutcome.awardedUserCardIds?.length ?? 0} premios agregados</h2>
+            <p>
+              Recibiste productos por {formatUsd.format(changerOutcome.targetValueUsd ?? 0)}.
+              {(changerOutcome.refundUsd ?? 0) > 0 &&
+                ` ${formatUsd.format(changerOutcome.refundUsd ?? 0)} volvieron a tu cartera.`}
+            </p>
+          </div>
+          <Link className="secondary-action compact" href="/profile">
+            <Trophy size={17} aria-hidden />
+            Ver inventario
+          </Link>
+        </article>
+      )}
+
+      <div className="changer-layout">
+        <section className="upgrader-panel changer-panel">
+          <div className="upgrader-panel-heading">
+            <div>
+              <span>Entregás</span>
+              <strong>{formatUsd.format(changerStakeValue)}</strong>
+            </div>
+            <small>{changerStakeCards.length}/20 elegidos</small>
+          </div>
+          <div className={`upgrader-selection-card selection-tray${changerStakeCards.length ? " filled" : ""}`}>
+            <div className="upgrader-selection-copy">
+              <small>Tus premios</small>
+              <strong>{changerStakeCards.length ? `${changerStakeCards.length} seleccionados` : "Elegí qué querés cambiar"}</strong>
+              <span>{changerStakeCards.length ? formatUsd.format(changerStakeValue) : "Tu selección aparecerá acá"}</span>
+            </div>
+            {changerStakeCards.length ? (
+              <div className="upgrader-selection-strip">
+                {changerStakeCards.map((item) => (
+                  <button
+                    aria-label={`Quitar ${item.card.name}`}
+                    className="upgrader-selection-thumb"
+                    disabled={changerSaving}
+                    key={item.id}
+                    onClick={() => toggleChangerStake(item.id)}
+                    type="button"
+                  >
+                    <img src={cardImage(item.card)} alt="" onError={handleImageError(item.card.game)} />
+                    <span aria-hidden><X size={13} /></span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="upgrader-selection-empty" aria-hidden>
+                <Trophy size={28} />
+                <span>Tus premios aparecerán acá</span>
+              </div>
+            )}
+          </div>
+          <div className="upgrader-item-list">
+            {ownedWonCards.length ? ownedWonCards.map((item) => {
+              const selected = changerStakeIds.includes(item.id);
+              return (
+                <button
+                  aria-pressed={selected}
+                  className={`upgrader-item${selected ? " selected" : ""}`}
+                  disabled={!session || changerSaving}
+                  key={item.id}
+                  onClick={() => toggleChangerStake(item.id)}
+                  type="button"
+                >
+                  <img src={cardImage(item.card)} alt="" onError={handleImageError(item.card.game)} />
+                  <span><strong>{item.card.name}</strong><small>{item.card.setName}</small></span>
+                  <b>{formatUsd.format(item.valueUsd)}</b>
+                  <CircleCheck size={19} aria-hidden />
+                </button>
+              );
+            }) : (
+              <div className="upgrader-empty">
+                <Trophy size={28} aria-hidden />
+                <strong>{session ? "No tenés premios activos" : "Tu inventario aparecerá acá"}</strong>
+                <p>{session ? "Abrí una caja para conseguir premios." : "Iniciá sesión para elegir tus premios."}</p>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="upgrader-center changer-center" aria-label="Resumen del cambio">
+          <div className="changer-symbol" aria-hidden>
+            <ArrowRight size={42} />
+          </div>
+          <span className="eyebrow">Valor disponible</span>
+          <strong className="changer-main-value">{formatUsd.format(changerStakeValue)}</strong>
+          <div className="upgrader-values">
+            <div><small>Entregás</small><strong>{formatUsd.format(changerStakeValue)}</strong></div>
+            <ArrowRight size={20} aria-hidden />
+            <div><small>Recibís</small><strong>{formatUsd.format(changerTargetValue)}</strong></div>
+          </div>
+          <div className={`changer-refund${changerTargetValue > changerStakeValue ? " invalid" : ""}`}>
+            <Wallet size={22} aria-hidden />
+            <div>
+              <small>Vuelve a tu cartera</small>
+              <strong>
+                {changerTargetValue > changerStakeValue
+                  ? `Faltan ${formatUsd.format(changerTargetValue - changerStakeValue)}`
+                  : formatUsd.format(changerRefund)}
+              </strong>
+            </div>
+          </div>
+          <button
+            className="primary-action changer-play"
+            disabled={
+              !session || changerSaving || !changerStakeIds.length ||
+              !changerSelectedTargets.length || changerTargetValue <= 0 ||
+              changerTargetValue > changerStakeValue
+            }
+            onClick={() => void playChanger()}
+            type="button"
+          >
+            <ArrowUpDown size={19} aria-hidden />
+            {changerSaving ? "Cambiando..." : "Confirmar cambio"}
+          </button>
+          <p className="upgrader-risk">El cambio es inmediato y no usa probabilidades.</p>
+        </section>
+
+        <section className="upgrader-panel changer-panel">
+          <div className="upgrader-panel-heading">
+            <div>
+              <span>Recibís</span>
+              <strong>{formatUsd.format(changerTargetValue)}</strong>
+            </div>
+            <small>{changerTargetUnits}/20 elegidos</small>
+          </div>
+          <div className={`upgrader-selection-card selection-tray${changerTargetUnits ? " filled" : ""}`}>
+            <div className="upgrader-selection-copy">
+              <small>Productos elegidos</small>
+              <strong>{changerTargetUnits ? `${changerTargetUnits} productos` : "Elegí qué querés recibir"}</strong>
+              <span>{changerTargetUnits ? formatUsd.format(changerTargetValue) : "Tu selección aparecerá acá"}</span>
+            </div>
+            {changerTargetUnits ? (
+              <div className="upgrader-selection-strip">
+                {changerSelectedTargets.flatMap(({ item, quantity }) =>
+                  Array.from({ length: quantity }, (_, index) => (
+                    <button
+                      aria-label={`Quitar una unidad de ${item.card.name}`}
+                      className="upgrader-selection-thumb"
+                      disabled={changerSaving}
+                      key={`${item.id}-${index}`}
+                      onClick={() => removeChangerTarget(item.id)}
+                      type="button"
+                    >
+                      <img src={cardImage(item.card)} alt="" onError={handleImageError(item.card.game)} />
+                      <span aria-hidden><X size={13} /></span>
+                    </button>
+                  )),
+                )}
+              </div>
+            ) : (
+              <div className="upgrader-selection-empty" aria-hidden>
+                <Sparkles size={28} />
+                <span>Los productos aparecerán acá</span>
+              </div>
+            )}
+          </div>
+          <div className="upgrader-target-tools">
+            <div className="stock-type-tabs" aria-label="Filtrar por juego">
+              <button className={changerGame === "mixed" ? "active" : ""} onClick={() => setChangerGame("mixed")} type="button">Todos</button>
+              {cardGames.map((game) => (
+                <button className={changerGame === game ? "active" : ""} key={game} onClick={() => setChangerGame(game)} type="button">{gameLabels[game]}</button>
+              ))}
+            </div>
+            <label className="upgrader-search">
+              <Search size={17} aria-hidden />
+              <input onChange={(event) => setChangerQuery(event.target.value)} placeholder="Buscar producto" value={changerQuery} />
+            </label>
+          </div>
+          <div className="upgrader-item-list">
+            {changerLoading ? (
+              <div className="upgrader-empty"><span className="mini-spinner" aria-hidden /><strong>Cargando productos</strong></div>
+            ) : filteredChangerTargets.length ? filteredChangerTargets.map((item) => {
+              const quantity = changerTargetQuantities[item.id] ?? 0;
+              const price = Number(item.card.priceUsd ?? 0);
+              const canAdd = Boolean(
+                session && changerStakeIds.length && !changerSaving &&
+                quantity < Math.min(20, item.quantity) && changerTargetUnits < 20 &&
+                changerTargetValue + price <= changerStakeValue + 0.0001,
+              );
+              return (
+                <button
+                  aria-label={`Agregar ${item.card.name}`}
+                  className={`upgrader-item${quantity ? " selected" : ""}`}
+                  disabled={!canAdd}
+                  key={item.id}
+                  onClick={() => addChangerTarget(item)}
+                  type="button"
+                >
+                  <img src={cardImage(item.card)} alt="" onError={handleImageError(item.card.game)} />
+                  <span><strong>{item.card.name}</strong><small>{item.card.setName} · stock {item.quantity}</small></span>
+                  <b>{quantity ? `${quantity}× · ` : ""}{formatUsd.format(price)}</b>
+                  <Plus size={19} aria-hidden />
+                </button>
+              );
+            }) : (
+              <div className="upgrader-empty"><Search size={27} aria-hidden /><strong>No hay productos para ese filtro</strong></div>
+            )}
+          </div>
+        </section>
+      </div>
+    </section>
+  );
+
   const inventoryPanel = (
     <section className="inventory-panel" aria-label="Inventario de premios">
       <div className="panel-heading">
@@ -6772,6 +7237,13 @@ export function BoosterMarket({
               <ArrowUpDown size={16} aria-hidden />
               Upgrader
             </Link>
+            <Link
+              className={view === "changer" ? "active" : ""}
+              href="/changer"
+            >
+              <ArrowRight size={16} aria-hidden />
+              Changer
+            </Link>
             <Link className={view === "cards" ? "active" : ""} href="/cards">
               <Search size={16} aria-hidden />
               Cartas
@@ -6983,6 +7455,7 @@ export function BoosterMarket({
           ))}
         {view === "cards" && searchSection}
         {view === "upgrader" && upgraderSection}
+        {view === "changer" && changerSection}
         {view.startsWith("admin") && adminSection}
         {view === "profile" && profileSection}
         {siteFooter}

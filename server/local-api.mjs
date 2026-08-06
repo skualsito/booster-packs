@@ -204,7 +204,7 @@ async function migrate(connectionPool) {
       value_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
       paid_price_usd DECIMAL(10,2) NULL,
       source_shop_id INT NULL,
-      status ENUM('owned', 'waiting_stock', 'sold', 'withdrawn', 'upgraded') NOT NULL DEFAULT 'owned',
+      status ENUM('owned', 'waiting_stock', 'sold', 'withdrawn', 'upgraded', 'changed') NOT NULL DEFAULT 'owned',
       shipment_status ENUM('pending', 'shipped', 'delivered') NULL DEFAULT NULL,
       tracking_number VARCHAR(160) NULL,
       shipped_at DATETIME NULL,
@@ -217,7 +217,7 @@ async function migrate(connectionPool) {
   `);
 
   await connectionPool.query(
-    "ALTER TABLE user_cards MODIFY status ENUM('owned', 'waiting_stock', 'sold', 'withdrawn', 'upgraded') NOT NULL DEFAULT 'owned'",
+    "ALTER TABLE user_cards MODIFY status ENUM('owned', 'waiting_stock', 'sold', 'withdrawn', 'upgraded', 'changed') NOT NULL DEFAULT 'owned'",
   );
 
   const shippingAlterStatements = [
@@ -277,6 +277,22 @@ async function migrate(connectionPool) {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       INDEX upgrader_user_idx (user_id),
       INDEX upgrader_created_idx (created_at)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  `);
+
+  await connectionPool.query(`
+    CREATE TABLE IF NOT EXISTS changer_runs (
+      id VARCHAR(80) PRIMARY KEY,
+      user_id INT NOT NULL,
+      stake_card_ids JSON NOT NULL,
+      stake_value_usd DECIMAL(10,2) NOT NULL,
+      target_items_json JSON NOT NULL,
+      target_value_usd DECIMAL(10,2) NOT NULL,
+      refund_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
+      awarded_user_card_ids JSON NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX changer_user_idx (user_id),
+      INDEX changer_created_idx (created_at)
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
   `);
 }
@@ -848,6 +864,204 @@ async function playUpgrader(session, body) {
       targetQuantity,
       awardedUserCardId,
       awardedUserCardIds,
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+async function playChanger(session, body) {
+  const rawStakeIds = Array.isArray(body.stakeCardIds) ? body.stakeCardIds : [];
+  const stakeCardIds = [...new Set(rawStakeIds.map(Number).filter(Number.isInteger))];
+  const rawTargets = Array.isArray(body.targetItems) ? body.targetItems : [];
+  const targetQuantities = new Map();
+
+  for (const item of rawTargets) {
+    const stockId = Number(item?.stockId);
+    const quantity = Number(item?.quantity);
+    if (!Number.isInteger(stockId) || stockId <= 0 || !Number.isInteger(quantity) || quantity <= 0) {
+      throw Object.assign(new Error("La selección de productos no es válida."), {
+        status: 400,
+      });
+    }
+    targetQuantities.set(stockId, (targetQuantities.get(stockId) ?? 0) + quantity);
+  }
+
+  const targetItems = [...targetQuantities].map(([stockId, quantity]) => ({
+    stockId,
+    quantity,
+  }));
+  const totalTargetUnits = targetItems.reduce((total, item) => total + item.quantity, 0);
+
+  if (!stakeCardIds.length || stakeCardIds.length > 20) {
+    throw Object.assign(new Error("Elegí entre 1 y 20 premios para cambiar."), {
+      status: 400,
+    });
+  }
+  if (!targetItems.length || totalTargetUnits > 20) {
+    throw Object.assign(new Error("Elegí entre 1 y 20 productos para recibir."), {
+      status: 400,
+    });
+  }
+
+  const connectionPool = await getPool();
+  const connection = await connectionPool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+    const stakePlaceholders = stakeCardIds.map(() => "?").join(", ");
+    const [stakeRows] = await connection.execute(
+      `
+        SELECT id, value_usd, card_json
+        FROM user_cards
+        WHERE user_id = ?
+          AND id IN (${stakePlaceholders})
+          AND status IN ('owned', 'waiting_stock')
+        FOR UPDATE
+      `,
+      [session.id, ...stakeCardIds],
+    );
+
+    if (stakeRows.length !== stakeCardIds.length) {
+      throw Object.assign(new Error("Uno de tus premios ya no está disponible."), {
+        status: 409,
+      });
+    }
+
+    const targetIds = targetItems.map((item) => item.stockId);
+    const targetPlaceholders = targetIds.map(() => "?").join(", ");
+    const [targetRows] = await connection.execute(
+      `
+        SELECT shop_card_stock.id, shop_card_stock.shop_id,
+          shop_card_stock.card_json, shop_card_stock.quantity
+        FROM shop_card_stock
+        INNER JOIN users ON users.id = shop_card_stock.shop_id
+        WHERE shop_card_stock.id IN (${targetPlaceholders})
+          AND shop_card_stock.quantity > 0
+          AND users.role = 'admin'
+        FOR UPDATE
+      `,
+      targetIds,
+    );
+
+    if (targetRows.length !== targetItems.length) {
+      throw Object.assign(new Error("Uno de los productos ya no está disponible."), {
+        status: 409,
+      });
+    }
+
+    const rowsById = new Map(targetRows.map((row) => [Number(row.id), row]));
+    const normalizedTargets = targetItems.map((item) => {
+      const row = rowsById.get(item.stockId);
+      if (!row || Number(row.quantity ?? 0) < item.quantity) {
+        throw Object.assign(new Error("No hay suficiente stock de uno de los productos."), {
+          status: 409,
+        });
+      }
+      const card = normalizeCard(parseCard(row.card_json));
+      const unitValueUsd = Number(card.priceUsd ?? 0);
+      return { ...item, row, card, unitValueUsd };
+    });
+
+    const stakeValueUsd = Number(
+      stakeRows.reduce((total, row) => total + Number(row.value_usd ?? 0), 0).toFixed(2),
+    );
+    const targetValueUsd = Number(
+      normalizedTargets
+        .reduce((total, item) => total + item.unitValueUsd * item.quantity, 0)
+        .toFixed(2),
+    );
+
+    if (targetValueUsd <= 0 || targetValueUsd > stakeValueUsd) {
+      throw Object.assign(
+        new Error("El valor de los productos debe ser igual o menor al de tus premios."),
+        { status: 400 },
+      );
+    }
+
+    const refundUsd = Number((stakeValueUsd - targetValueUsd).toFixed(2));
+    await connection.execute(
+      `UPDATE user_cards SET status = 'changed' WHERE user_id = ? AND id IN (${stakePlaceholders})`,
+      [session.id, ...stakeCardIds],
+    );
+
+    const awardedUserCardIds = [];
+    for (const target of normalizedTargets) {
+      for (let index = 0; index < target.quantity; index += 1) {
+        const [insertResult] = await connection.execute(
+          `
+            INSERT INTO user_cards (
+              user_id, pack_id, pack_name, card_json, value_usd,
+              paid_price_usd, source_shop_id, status
+            ) VALUES (?, NULL, 'Changer', ?, ?, 0, ?, 'owned')
+          `,
+          [
+            session.id,
+            JSON.stringify(target.card),
+            target.unitValueUsd,
+            Number(target.row.shop_id),
+          ],
+        );
+        awardedUserCardIds.push(Number(insertResult.insertId));
+      }
+    }
+
+    if (refundUsd > 0) {
+      await connection.execute(
+        "UPDATE users SET balance_usd = balance_usd + ? WHERE id = ?",
+        [refundUsd, session.id],
+      );
+    }
+
+    const runId = randomUUID();
+    await connection.execute(
+      `
+        INSERT INTO changer_runs (
+          id, user_id, stake_card_ids, stake_value_usd, target_items_json,
+          target_value_usd, refund_usd, awarded_user_card_ids
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        runId,
+        session.id,
+        JSON.stringify(stakeCardIds),
+        stakeValueUsd,
+        JSON.stringify(
+          normalizedTargets.map((item) => ({
+            stockId: item.stockId,
+            quantity: item.quantity,
+            card: item.card,
+            unitValueUsd: item.unitValueUsd,
+          })),
+        ),
+        targetValueUsd,
+        refundUsd,
+        JSON.stringify(awardedUserCardIds),
+      ],
+    );
+
+    const [userRows] = await connection.execute(
+      "SELECT * FROM users WHERE id = ? LIMIT 1",
+      [session.id],
+    );
+    await connection.commit();
+
+    return {
+      runId,
+      stakeValueUsd,
+      targetValueUsd,
+      refundUsd,
+      awardedUserCardIds,
+      targets: normalizedTargets.map((item) => ({
+        stockId: item.stockId,
+        quantity: item.quantity,
+        card: item.card,
+        unitValueUsd: item.unitValueUsd,
+      })),
+      user: publicUser(userRows[0]),
     };
   } catch (error) {
     await connection.rollback();
@@ -2186,6 +2400,24 @@ async function handleRequest(request, response) {
     }
 
     sendJson(response, 200, await playUpgrader(session, await readJsonBody(request)));
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/changer") {
+    const session = requireUser(request);
+    sendJson(response, 200, await listUpgraderOptions(session));
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/api/changer/play") {
+    const session = requireUser(request);
+
+    if (!session) {
+      sendJson(response, 401, { error: "Inicia sesión." });
+      return;
+    }
+
+    sendJson(response, 200, await playChanger(session, await readJsonBody(request)));
     return;
   }
 
