@@ -9046,11 +9046,15 @@ a:has(> .material-icon) {
   align-items: stretch;
   display: grid;
   gap: 22px;
-  grid-template-columns: minmax(280px, 1fr) minmax(330px, 410px) minmax(280px, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 0.78fr) minmax(0, 1fr);
   margin: 0 auto;
   max-width: 1500px;
   order: 2;
   width: 100%;
+}
+
+.changer-layout > * {
+  min-width: 0;
 }
 
 .changer-panel {
@@ -9058,6 +9062,8 @@ a:has(> .material-icon) {
 }
 
 .changer-center {
+  grid-area: auto;
+  height: clamp(700px, calc(100vh - 150px), 790px);
   min-height: 700px;
 }
 
@@ -9157,6 +9163,7 @@ a:has(> .material-icon) {
   .changer-center {
     grid-column: 1 / -1;
     grid-row: 1;
+    height: auto;
     min-height: 520px;
   }
 
@@ -9172,6 +9179,7 @@ a:has(> .material-icon) {
 
   .changer-center {
     grid-column: auto;
+    grid-row: auto;
     min-height: 470px;
   }
 
