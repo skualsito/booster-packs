@@ -1304,6 +1304,8 @@ export function BoosterMarket({
   const audioContextRef = useRef<AudioContext | null>(null);
   const rouletteTrackRef = useRef<HTMLDivElement | null>(null);
   const rouletteTickFrameRef = useRef<number | null>(null);
+  const upgraderNeedleRef = useRef<HTMLDivElement | null>(null);
+  const upgraderTickFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!wonCardsMessage) {
@@ -1881,6 +1883,9 @@ export function BoosterMarket({
       spinTimers.current.forEach((timer) => window.clearTimeout(timer));
       if (rouletteTickFrameRef.current !== null) {
         window.cancelAnimationFrame(rouletteTickFrameRef.current);
+      }
+      if (upgraderTickFrameRef.current !== null) {
+        window.cancelAnimationFrame(upgraderTickFrameRef.current);
       }
       if (audioContextRef.current) {
         void audioContextRef.current.close();
@@ -3024,6 +3029,7 @@ export function BoosterMarket({
       return;
     }
 
+    await prepareRouletteAudio();
     setUpgraderPlaying(true);
     setUpgraderOutcome(null);
     setWonCardsMessage("");
@@ -3063,8 +3069,13 @@ export function BoosterMarket({
         const finalTurn = (targetAngle - currentAngle + 360) % 360;
         return current + 1440 + finalTurn;
       });
+      window.setTimeout(() => startUpgraderTickTracking(), 30);
 
       upgraderTimerRef.current = window.setTimeout(() => {
+        if (upgraderTickFrameRef.current !== null) {
+          window.cancelAnimationFrame(upgraderTickFrameRef.current);
+          upgraderTickFrameRef.current = null;
+        }
         setUpgraderOutcome(payload);
         setUpgraderPlaying(false);
         setUpgraderStakeIds([]);
@@ -3078,11 +3089,16 @@ export function BoosterMarket({
             ? "¡Upgrade conseguido! El premio ya está en tu inventario."
             : "El upgrade no salió esta vez.",
         );
+        playUpgraderResultSound(payload.won);
         void loadWonCards();
         void loadUpgraderOptions();
         upgraderTimerRef.current = null;
       }, 4200);
     } catch (error) {
+      if (upgraderTickFrameRef.current !== null) {
+        window.cancelAnimationFrame(upgraderTickFrameRef.current);
+        upgraderTickFrameRef.current = null;
+      }
       setUpgraderPlaying(false);
       setWonCardsMessageTone("error");
       setWonCardsMessage(
@@ -3555,6 +3571,80 @@ export function BoosterMarket({
     };
 
     rouletteTickFrameRef.current = window.requestAnimationFrame(sampleTrack);
+  };
+
+  const startUpgraderTickTracking = () => {
+    if (upgraderTickFrameRef.current !== null) {
+      window.cancelAnimationFrame(upgraderTickFrameRef.current);
+    }
+
+    let lastAngle: number | null = null;
+    let travelledAngle = 0;
+    let lastBoundary = 0;
+    const startedAt = performance.now();
+
+    const sampleNeedle = () => {
+      const needle = upgraderNeedleRef.current;
+      if (!needle) {
+        upgraderTickFrameRef.current = null;
+        return;
+      }
+
+      const transform = window.getComputedStyle(needle).transform;
+      const match = transform.match(/^matrix\((.+)\)$/);
+      if (match) {
+        const values = match[1].split(",").map(Number);
+        const angle = (Math.atan2(values[1] ?? 0, values[0] ?? 1) * 180) / Math.PI;
+        const normalizedAngle = (angle + 360) % 360;
+
+        if (lastAngle !== null) {
+          travelledAngle += (normalizedAngle - lastAngle + 360) % 360;
+          const crossedBoundary = Math.floor(travelledAngle / 12);
+          if (crossedBoundary > lastBoundary) {
+            const progress = Math.min(1, (performance.now() - startedAt) / 4000);
+            const crossedThisFrame = Math.min(3, crossedBoundary - lastBoundary);
+            for (let index = 0; index < crossedThisFrame; index += 1) {
+              playRouletteTick(progress, index * 0.005);
+            }
+            lastBoundary = crossedBoundary;
+          }
+        }
+        lastAngle = normalizedAngle;
+      }
+
+      if (performance.now() - startedAt < 4100) {
+        upgraderTickFrameRef.current = window.requestAnimationFrame(sampleNeedle);
+      } else {
+        upgraderTickFrameRef.current = null;
+      }
+    };
+
+    upgraderTickFrameRef.current = window.requestAnimationFrame(sampleNeedle);
+  };
+
+  const playUpgraderResultSound = (won: boolean) => {
+    if (won) {
+      playHitFanfare();
+      return;
+    }
+
+    const context = audioContextRef.current;
+    if (!context || context.state !== "running") return;
+
+    [260, 190].forEach((frequency, index) => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const start = context.currentTime + index * 0.12;
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(frequency, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.035, start + 0.018);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.2);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(start);
+      oscillator.stop(start + 0.22);
+    });
   };
 
   const playHitFanfare = () => {
@@ -5800,6 +5890,7 @@ export function BoosterMarket({
                 <div className="upgrader-wheel-scale" aria-hidden />
                 <div
                   className="upgrader-needle"
+                  ref={upgraderNeedleRef}
                   style={{ transform: `rotate(${upgraderRotation}deg)` }}
                   aria-hidden
                 >
