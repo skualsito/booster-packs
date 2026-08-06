@@ -34,6 +34,63 @@ type SearchOptions = {
   rarity?: string;
   setName?: string;
   number?: string;
+  page?: number;
+  pageSize?: number;
+  sort?: string;
+};
+
+export type CardSearchResult = {
+  cards: ExternalCard[];
+  hasMore: boolean;
+  page: number;
+  total: number;
+};
+
+const cardNumberValue = (card: ExternalCard) => {
+  const number = (card.number ?? "").trim();
+  const collectorNumber = number.includes("/")
+    ? number.split("/")[0]
+    : number.includes("-")
+      ? number.split("-").at(-1)
+      : number;
+  const match = collectorNumber?.match(/\d+/);
+  return match ? Number(match[0]) : Number.NEGATIVE_INFINITY;
+};
+
+const sortSearchCards = (cards: ExternalCard[], sort = "relevance") => {
+  const sorted = [...cards];
+
+  if (sort === "price-asc") {
+    return sorted.sort((left, right) => {
+      const leftPrice = left.priceUsd;
+      const rightPrice = right.priceUsd;
+
+      if (typeof leftPrice !== "number" && typeof rightPrice !== "number") return 0;
+      if (typeof leftPrice !== "number") return 1;
+      if (typeof rightPrice !== "number") return -1;
+      return leftPrice - rightPrice;
+    });
+  }
+
+  if (sort === "price-desc") {
+    return sorted.sort((left, right) => {
+      const leftPrice = left.priceUsd;
+      const rightPrice = right.priceUsd;
+
+      if (typeof leftPrice !== "number" && typeof rightPrice !== "number") return 0;
+      if (typeof leftPrice !== "number") return 1;
+      if (typeof rightPrice !== "number") return -1;
+      return rightPrice - leftPrice;
+    });
+  }
+
+  if (sort === "number-desc") {
+    return sorted.sort(
+      (left, right) => cardNumberValue(right) - cardNumberValue(left),
+    );
+  }
+
+  return sorted;
 };
 
 type StructuredSearch = {
@@ -85,7 +142,7 @@ type OnePieceJapaneseRawCard = {
 
 const CACHE_TTL_MS = 1000 * 60 * 20;
 const SET_CACHE_TTL_MS = 1000 * 60 * 60 * 24;
-const CACHE_VERSION = "exact-language-variant-search-v1";
+const CACHE_VERSION = "paginated-card-search-v3";
 const ONE_PIECE_JP_CARDLIST_URL = "https://www.onepiece-cardgame.com/cardlist/";
 const searchCache = new Map<string, CacheEntry>();
 const onePieceJapanesePriceCache = new Map<
@@ -1006,7 +1063,7 @@ export async function searchCards(
   game: CardGame,
   rawQuery: string,
   options: SearchOptions = {},
-): Promise<ExternalCard[]> {
+): Promise<CardSearchResult> {
   const query = cleanQuery(rawQuery);
   const rarity = cleanQuery(options.rarity ?? "");
   const structuredSearch: StructuredSearch = {
@@ -1015,8 +1072,11 @@ export async function searchCards(
   };
 
   if (query.length < 2 && structuredSearch.setTerm.length < 2) {
-    return [];
+    return { cards: [], hasMore: false, page: 1, total: 0 };
   }
+
+  const page = Math.max(1, Math.floor(options.page ?? 1));
+  const pageSize = Math.min(48, Math.max(1, Math.floor(options.pageSize ?? 24)));
 
   const cacheKey = [
     CACHE_VERSION,
@@ -1027,27 +1087,34 @@ export async function searchCards(
     structuredSearch.number.toLowerCase(),
   ].join(":");
   const cached = searchCache.get(cacheKey);
+  let cards =
+    cached && cached.expiresAt > Date.now() ? cached.cards : undefined;
 
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.cards;
-  }
+  if (!cards) {
+    const sourceCards =
+      game === "magic"
+        ? await searchMagic(query, rarity, structuredSearch)
+        : game === "pokemon"
+          ? await searchPokemon(query, rarity, structuredSearch)
+          : await searchOnePiece(query, rarity, structuredSearch);
+    cards = uniqueCardsById(filterByRarity(sourceCards, rarity));
 
-  const sourceCards =
-    game === "magic"
-      ? await searchMagic(query, rarity, structuredSearch)
-      : game === "pokemon"
-        ? await searchPokemon(query, rarity, structuredSearch)
-        : await searchOnePiece(query, rarity, structuredSearch);
-  const cards = filterByRarity(sourceCards, rarity).slice(0, 24);
-
-  if (cards.length > 0) {
     searchCache.set(cacheKey, {
       cards,
       expiresAt: Date.now() + CACHE_TTL_MS,
     });
   }
 
-  return cards;
+  const sortedCards = sortSearchCards(cards, options.sort);
+  const start = (page - 1) * pageSize;
+  const pageCards = sortedCards.slice(start, start + pageSize);
+
+  return {
+    cards: pageCards,
+    hasMore: start + pageCards.length < sortedCards.length,
+    page,
+    total: sortedCards.length,
+  };
 }
 
 export async function getCardLanguageVariants(
@@ -1118,9 +1185,7 @@ async function searchMagic(
   ).catch(() => ({ data: [] }));
   const cards = Array.isArray(payload.data) ? payload.data : [];
 
-  return cards
-    .slice(0, 80)
-    .map(mapMagicCard);
+  return cards.map(mapMagicCard);
 }
 
 async function searchMagicBySet(
@@ -1149,7 +1214,7 @@ async function searchMagicBySet(
     const cards = Array.isArray(payload.data) ? payload.data : [];
 
     if (cards.length) {
-      return cards.slice(0, 80).map(mapMagicCard);
+      return cards.map(mapMagicCard);
     }
   }
 
@@ -1238,7 +1303,7 @@ async function searchPokemon(
   const fetchPokemon = async (q: string) => {
     const url = new URL("https://api.pokemontcg.io/v2/cards");
     url.searchParams.set("q", q);
-    url.searchParams.set("pageSize", "80");
+    url.searchParams.set("pageSize", "250");
     url.searchParams.set("orderBy", "-set.releaseDate");
     url.searchParams.set(
       "select",
@@ -2200,7 +2265,7 @@ async function searchOnePiece(
 
       return aScore - bScore || aName.localeCompare(bName);
     })
-    .slice(0, 80);
+    .slice(0, 240);
 
   if (setNumberQuery?.setCode) {
     const japaneseSearchTerms = codeSearchTerms.length ? codeSearchTerms : [query];
@@ -2214,7 +2279,7 @@ async function searchOnePiece(
       ).flat(),
     );
 
-    return uniqueCardsById([...englishMatches, ...japaneseMatches]).slice(0, 80);
+    return uniqueCardsById([...englishMatches, ...japaneseMatches]).slice(0, 240);
   }
 
   if (query.length < 2 && !codeSearchTerms.length) {
@@ -2498,7 +2563,7 @@ async function searchOnePieceJapanese(
     mapOnePieceJapaneseCard(card, pricedCards, pricedResults[index]),
   );
 
-  return filterByRarity(cards, rarity).slice(0, 80);
+  return filterByRarity(cards, rarity).slice(0, 240);
 }
 
 function mapOnePieceJapaneseCard(

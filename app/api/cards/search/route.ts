@@ -7,6 +7,9 @@ export async function GET(request: Request) {
   const setName = url.searchParams.get("set") ?? "";
   const number = url.searchParams.get("number") ?? "";
   const rarity = url.searchParams.get("rarity") ?? "";
+  const sort = url.searchParams.get("sort") ?? "relevance";
+  const page = Math.max(1, Number(url.searchParams.get("page") ?? 1) || 1);
+  const pageSize = 24;
 
   if (!isSupportedGame(game)) {
     return Response.json(
@@ -23,16 +26,27 @@ export async function GET(request: Request) {
   }
 
   try {
-    const cards = await searchCards(game, query, { rarity, setName, number });
+    const result = await searchCards(game, query, {
+      rarity,
+      setName,
+      number,
+      page,
+      pageSize,
+      sort,
+    });
     return Response.json({
-      cards,
+      cards: result.cards,
       meta: {
         game,
         query: query.trim(),
         set: setName.trim(),
         number: number.trim(),
         rarity: rarity.trim(),
-        count: cards.length,
+        sort,
+        count: result.cards.length,
+        hasMore: result.hasMore,
+        page: result.page,
+        total: result.total,
       },
     });
   } catch (error) {
@@ -50,7 +64,11 @@ export async function GET(request: Request) {
           set: setName.trim(),
           number: number.trim(),
           rarity: rarity.trim(),
+          sort,
           count: 0,
+          hasMore: false,
+          page,
+          total: 0,
         },
     });
   }

@@ -109,6 +109,19 @@ async function migrate(connectionPool) {
       username VARCHAR(80) NOT NULL UNIQUE,
       email VARCHAR(160) NULL,
       display_name VARCHAR(120) NULL,
+      full_name VARCHAR(160) NULL,
+      phone VARCHAR(40) NULL,
+      address_line1 VARCHAR(200) NULL,
+      address_line2 VARCHAR(120) NULL,
+      street VARCHAR(160) NULL,
+      street_number VARCHAR(30) NULL,
+      floor VARCHAR(30) NULL,
+      apartment VARCHAR(30) NULL,
+      address_reference VARCHAR(200) NULL,
+      city VARCHAR(120) NULL,
+      province VARCHAR(120) NULL,
+      postal_code VARCHAR(30) NULL,
+      country VARCHAR(80) NULL,
       role ENUM('user', 'admin') NOT NULL DEFAULT 'user',
       balance_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
       shop_name VARCHAR(120) NULL,
@@ -188,7 +201,12 @@ async function migrate(connectionPool) {
       pack_name VARCHAR(160) NULL,
       card_json JSON NOT NULL,
       value_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
+      paid_price_usd DECIMAL(10,2) NULL,
       status ENUM('owned', 'waiting_stock', 'sold', 'withdrawn') NOT NULL DEFAULT 'owned',
+      shipment_status ENUM('pending', 'shipped', 'delivered') NULL DEFAULT NULL,
+      tracking_number VARCHAR(160) NULL,
+      shipped_at DATETIME NULL,
+      delivered_at DATETIME NULL,
       acquired_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX user_cards_user_idx (user_id),
@@ -199,12 +217,97 @@ async function migrate(connectionPool) {
   await connectionPool.query(
     "ALTER TABLE user_cards MODIFY status ENUM('owned', 'waiting_stock', 'sold', 'withdrawn') NOT NULL DEFAULT 'owned'",
   );
+
+  const shippingAlterStatements = [
+    "ALTER TABLE user_cards ADD COLUMN paid_price_usd DECIMAL(10,2) NULL AFTER value_usd",
+    "ALTER TABLE user_cards ADD COLUMN shipment_status ENUM('pending', 'shipped', 'delivered') NULL DEFAULT NULL AFTER status",
+    "ALTER TABLE user_cards ADD COLUMN tracking_number VARCHAR(160) NULL AFTER shipment_status",
+    "ALTER TABLE user_cards ADD COLUMN shipped_at DATETIME NULL AFTER tracking_number",
+    "ALTER TABLE user_cards ADD COLUMN delivered_at DATETIME NULL AFTER shipped_at",
+    "ALTER TABLE user_cards ADD INDEX user_cards_shipment_idx (shipment_status)",
+  ];
+
+  for (const statement of shippingAlterStatements) {
+    try {
+      await connectionPool.query(statement);
+    } catch (error) {
+      if (!["ER_DUP_FIELDNAME", "ER_DUP_KEYNAME"].includes(error?.code)) {
+        throw error;
+      }
+    }
+  }
+
+  await connectionPool.query(
+    "ALTER TABLE user_cards MODIFY shipment_status ENUM('pending', 'shipped', 'delivered') NULL DEFAULT NULL",
+  );
+
+  await connectionPool.query(
+    "UPDATE user_cards SET shipment_status = 'pending' WHERE status = 'withdrawn' AND shipment_status IS NULL",
+  );
+  await connectionPool.query(`
+    UPDATE user_cards
+    LEFT JOIN booster_packs ON booster_packs.id = user_cards.pack_id
+    SET user_cards.paid_price_usd = COALESCE(booster_packs.price, 0)
+    WHERE user_cards.paid_price_usd IS NULL
+  `);
 }
 
 async function migrateExistingTables(connectionPool) {
   const alterStatements = [
     [
       "ALTER TABLE users ADD COLUMN shop_name VARCHAR(120) NULL",
+      ["ER_DUP_FIELDNAME"],
+    ],
+    [
+      "ALTER TABLE users ADD COLUMN full_name VARCHAR(160) NULL AFTER display_name",
+      ["ER_DUP_FIELDNAME"],
+    ],
+    [
+      "ALTER TABLE users ADD COLUMN phone VARCHAR(40) NULL AFTER full_name",
+      ["ER_DUP_FIELDNAME"],
+    ],
+    [
+      "ALTER TABLE users ADD COLUMN address_line1 VARCHAR(200) NULL AFTER phone",
+      ["ER_DUP_FIELDNAME"],
+    ],
+    [
+      "ALTER TABLE users ADD COLUMN address_line2 VARCHAR(120) NULL AFTER address_line1",
+      ["ER_DUP_FIELDNAME"],
+    ],
+    [
+      "ALTER TABLE users ADD COLUMN street VARCHAR(160) NULL AFTER address_line2",
+      ["ER_DUP_FIELDNAME"],
+    ],
+    [
+      "ALTER TABLE users ADD COLUMN street_number VARCHAR(30) NULL AFTER street",
+      ["ER_DUP_FIELDNAME"],
+    ],
+    [
+      "ALTER TABLE users ADD COLUMN floor VARCHAR(30) NULL AFTER street_number",
+      ["ER_DUP_FIELDNAME"],
+    ],
+    [
+      "ALTER TABLE users ADD COLUMN apartment VARCHAR(30) NULL AFTER floor",
+      ["ER_DUP_FIELDNAME"],
+    ],
+    [
+      "ALTER TABLE users ADD COLUMN address_reference VARCHAR(200) NULL AFTER apartment",
+      ["ER_DUP_FIELDNAME"],
+    ],
+    [
+      "ALTER TABLE users ADD COLUMN city VARCHAR(120) NULL AFTER address_line2",
+      ["ER_DUP_FIELDNAME"],
+    ],
+    [
+      "ALTER TABLE users ADD COLUMN province VARCHAR(120) NULL AFTER city",
+      ["ER_DUP_FIELDNAME"],
+    ],
+    [
+      "ALTER TABLE users ADD COLUMN postal_code VARCHAR(30) NULL AFTER province",
+      ["ER_DUP_FIELDNAME"],
+    ],
+    [
+      "ALTER TABLE users ADD COLUMN country VARCHAR(80) NULL AFTER postal_code",
       ["ER_DUP_FIELDNAME"],
     ],
     [
@@ -492,6 +595,10 @@ function publicUserCard(row) {
     card: parseCard(row.card_json),
     valueUsd: Number(row.value_usd ?? 0),
     status: row.status,
+    shipmentStatus: row.shipment_status ?? undefined,
+    trackingNumber: row.tracking_number ?? undefined,
+    shippedAt: row.shipped_at ?? undefined,
+    deliveredAt: row.delivered_at ?? undefined,
     acquiredAt: row.acquired_at,
   };
 }
@@ -563,13 +670,54 @@ async function addShopStock(session, body) {
 }
 
 async function updateShopStock(session, stockId, body) {
-  const quantity =
-    typeof body.quantity === "number" && Number.isFinite(body.quantity)
-      ? Math.max(0, Math.floor(body.quantity))
-      : 0;
   const connectionPool = await getPool();
+  const [existingRows] = await connectionPool.execute(
+    "SELECT id, card_json, quantity FROM shop_card_stock WHERE id = ? AND shop_id = ? LIMIT 1",
+    [stockId, session.id],
+  );
 
-  if (quantity <= 0) {
+  if (!existingRows.length) {
+    throw Object.assign(new Error("No encontre ese producto en tu stock."), {
+      status: 404,
+    });
+  }
+
+  const existingRow = existingRows[0];
+  const hasQuantityUpdate =
+    typeof body.quantity === "number" && Number.isFinite(body.quantity);
+  const quantity =
+    hasQuantityUpdate
+      ? Math.max(0, Math.floor(body.quantity))
+      : Number(existingRow.quantity ?? 0);
+  let card = parseCard(existingRow.card_json);
+
+  if (body.card && typeof body.card === "object") {
+    const priceUsd = Number(body.card.priceUsd);
+    const imageUrl = asTrimmedString(body.card.imageUrl);
+
+    if (!Number.isFinite(priceUsd) || priceUsd < 0) {
+      throw Object.assign(new Error("Ingresa un precio valido."), {
+        status: 400,
+      });
+    }
+
+    if (imageUrl && !/^https?:\/\//i.test(imageUrl)) {
+      throw Object.assign(
+        new Error("La imagen debe usar una direccion http o https."),
+        { status: 400 },
+      );
+    }
+
+    card = normalizeCard({
+      ...card,
+      imageUrl: imageUrl || undefined,
+      priceUsd,
+      priceSource: "Precio manual de Pullario",
+      updatedAt: new Date().toISOString().slice(0, 10),
+    });
+  }
+
+  if (hasQuantityUpdate && quantity <= 0) {
     await connectionPool.execute(
       "DELETE FROM shop_card_stock WHERE id = ? AND shop_id = ?",
       [stockId, session.id],
@@ -578,8 +726,8 @@ async function updateShopStock(session, stockId, body) {
   }
 
   const [result] = await connectionPool.execute(
-    "UPDATE shop_card_stock SET quantity = ? WHERE id = ? AND shop_id = ?",
-    [quantity, stockId, session.id],
+    "UPDATE shop_card_stock SET quantity = ?, card_json = ? WHERE id = ? AND shop_id = ?",
+    [quantity, JSON.stringify(card), stockId, session.id],
   );
 
   if (!result.affectedRows) {
@@ -600,7 +748,8 @@ async function listUserCards(session) {
   const connectionPool = await getPool();
   const [rows] = await connectionPool.execute(
     `
-      SELECT id, pack_id, pack_name, card_json, value_usd, status, acquired_at
+      SELECT id, pack_id, pack_name, card_json, value_usd, status,
+        shipment_status, tracking_number, shipped_at, delivered_at, acquired_at
       FROM user_cards
       WHERE user_id = ?
       ORDER BY acquired_at DESC
@@ -637,6 +786,10 @@ function publicShopOrder(row) {
     card: parseCard(row.card_json),
     valueUsd: Number(row.value_usd ?? 0),
     status: row.status,
+    shipmentStatus: row.shipment_status ?? undefined,
+    trackingNumber: row.tracking_number ?? undefined,
+    shippedAt: row.shipped_at ?? undefined,
+    deliveredAt: row.delivered_at ?? undefined,
     acquiredAt: row.acquired_at,
   };
 }
@@ -707,11 +860,16 @@ async function listShopOrders() {
         user_cards.card_json,
         user_cards.value_usd,
         user_cards.status,
+        user_cards.shipment_status,
+        user_cards.tracking_number,
+        user_cards.shipped_at,
         user_cards.acquired_at
       FROM user_cards
       INNER JOIN booster_packs AS packs ON packs.id = user_cards.pack_id
       INNER JOIN users ON users.id = user_cards.user_id
       WHERE packs.created_by = 'admin'
+        AND user_cards.status = 'withdrawn'
+        AND COALESCE(user_cards.shipment_status, 'pending') = 'pending'
       ORDER BY user_cards.acquired_at DESC
     `,
   );
@@ -719,11 +877,246 @@ async function listShopOrders() {
 
   return {
     orders,
-    reservedCount: orders.filter((item) => item.status === "owned").length,
-    waitingStockCount: orders.filter((item) => item.status === "waiting_stock")
-      .length,
     withdrawnCount: orders.filter((item) => item.status === "withdrawn").length,
-    soldCount: orders.filter((item) => item.status === "sold").length,
+    userCount: new Set(orders.map((item) => item.userId)).size,
+  };
+}
+
+async function markShopOrdersShipped(body) {
+  const shipments = Array.isArray(body.shipments) ? body.shipments : [];
+
+  if (!shipments.length || shipments.length > 100) {
+    throw Object.assign(
+      new Error("Selecciona entre 1 y 100 retiros para confirmar el envio."),
+      { status: 400 },
+    );
+  }
+
+  const normalizedShipments = shipments.map((shipment) => {
+    const id = Number(shipment?.id);
+    const trackingNumber = asTrimmedString(shipment?.trackingNumber).slice(0, 160);
+
+    if (!Number.isInteger(id) || id <= 0 || trackingNumber.length < 3) {
+      throw Object.assign(
+        new Error("Cada retiro seleccionado necesita un numero de seguimiento."),
+        { status: 400 },
+      );
+    }
+
+    return { id, trackingNumber };
+  });
+
+  const connectionPool = await getPool();
+  const connection = await connectionPool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const shipmentIds = normalizedShipments.map((shipment) => shipment.id);
+    const placeholders = shipmentIds.map(() => "?").join(", ");
+    const [activeRows] = await connection.execute(
+      `
+        SELECT user_cards.id, user_cards.user_id
+        FROM user_cards
+        INNER JOIN booster_packs ON booster_packs.id = user_cards.pack_id
+        WHERE user_cards.id IN (${placeholders})
+          AND user_cards.status = 'withdrawn'
+          AND COALESCE(user_cards.shipment_status, 'pending') = 'pending'
+          AND booster_packs.created_by = 'admin'
+        FOR UPDATE
+      `,
+      shipmentIds,
+    );
+
+    if (
+      activeRows.length !== shipmentIds.length ||
+      new Set(activeRows.map((row) => Number(row.user_id))).size !== 1
+    ) {
+      throw Object.assign(
+        new Error(
+          "Los retiros deben seguir activos y pertenecer al mismo usuario.",
+        ),
+        { status: 409 },
+      );
+    }
+
+    for (const shipment of normalizedShipments) {
+      const [result] = await connection.execute(
+        `
+          UPDATE user_cards
+          INNER JOIN booster_packs ON booster_packs.id = user_cards.pack_id
+          SET
+            user_cards.shipment_status = 'shipped',
+            user_cards.tracking_number = ?,
+            user_cards.shipped_at = NOW()
+          WHERE user_cards.id = ?
+            AND user_cards.status = 'withdrawn'
+            AND COALESCE(user_cards.shipment_status, 'pending') = 'pending'
+            AND booster_packs.created_by = 'admin'
+        `,
+        [shipment.trackingNumber, shipment.id],
+      );
+
+      if (!result.affectedRows) {
+        throw Object.assign(
+          new Error("Uno de los retiros ya fue enviado o dejo de estar activo."),
+          { status: 409 },
+        );
+      }
+    }
+
+    await connection.commit();
+    return { ok: true, shippedCount: normalizedShipments.length };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+async function listShopShipments() {
+  const connectionPool = await getPool();
+  const [rows] = await connectionPool.execute(
+    `
+      SELECT
+        user_cards.id,
+        user_cards.user_id,
+        users.username,
+        users.display_name,
+        user_cards.pack_id,
+        user_cards.pack_name,
+        user_cards.card_json,
+        user_cards.value_usd,
+        user_cards.status,
+        user_cards.shipment_status,
+        user_cards.tracking_number,
+        user_cards.shipped_at,
+        user_cards.delivered_at,
+        user_cards.acquired_at
+      FROM user_cards
+      INNER JOIN booster_packs AS packs ON packs.id = user_cards.pack_id
+      INNER JOIN users ON users.id = user_cards.user_id
+      WHERE packs.created_by = 'admin'
+        AND user_cards.status = 'withdrawn'
+        AND user_cards.shipment_status IN ('shipped', 'delivered')
+      ORDER BY COALESCE(user_cards.delivered_at, user_cards.shipped_at) DESC
+    `,
+  );
+  const shipments = rows.map(publicShopOrder);
+
+  return {
+    active: shipments.filter((item) => item.shipmentStatus === "shipped"),
+    history: shipments.filter((item) => item.shipmentStatus === "delivered"),
+  };
+}
+
+async function markShipmentDelivered(body) {
+  const ids = Array.isArray(body.ids)
+    ? [...new Set(body.ids.map(Number).filter((id) => Number.isInteger(id) && id > 0))]
+    : [];
+
+  if (!ids.length || ids.length > 100) {
+    throw Object.assign(new Error("Selecciona un envio activo para confirmar."), {
+      status: 400,
+    });
+  }
+
+  const connectionPool = await getPool();
+  const placeholders = ids.map(() => "?").join(", ");
+  const [result] = await connectionPool.execute(
+    `
+      UPDATE user_cards
+      INNER JOIN booster_packs ON booster_packs.id = user_cards.pack_id
+      SET
+        user_cards.shipment_status = 'delivered',
+        user_cards.delivered_at = NOW()
+      WHERE user_cards.id IN (${placeholders})
+        AND user_cards.status = 'withdrawn'
+        AND user_cards.shipment_status = 'shipped'
+        AND booster_packs.created_by = 'admin'
+    `,
+    ids,
+  );
+
+  if (result.affectedRows !== ids.length) {
+    throw Object.assign(
+      new Error("El envio ya fue recibido o dejo de estar activo."),
+      { status: 409 },
+    );
+  }
+
+  return { ok: true, deliveredCount: result.affectedRows };
+}
+
+async function listAdminUsers(query = "") {
+  const connectionPool = await getPool();
+  const normalizedQuery = asTrimmedString(query).slice(0, 80);
+  const search = `%${normalizedQuery}%`;
+  const [rows] = await connectionPool.execute(
+    `
+      SELECT
+        users.id,
+        users.username,
+        users.display_name,
+        users.email,
+        COUNT(user_cards.id) AS prize_count,
+        SUM(CASE WHEN user_cards.status IN ('owned', 'waiting_stock') THEN 1 ELSE 0 END) AS active_count,
+        COALESCE(SUM(user_cards.paid_price_usd), 0) AS spent_value,
+        COALESCE(SUM(CASE WHEN user_cards.status = 'withdrawn' THEN user_cards.value_usd ELSE 0 END), 0) AS withdrawn_value
+      FROM users
+      LEFT JOIN user_cards ON user_cards.user_id = users.id
+      WHERE users.username LIKE ? OR COALESCE(users.display_name, '') LIKE ? OR COALESCE(users.email, '') LIKE ?
+      GROUP BY users.id, users.username, users.display_name, users.email
+      ORDER BY users.username ASC
+      LIMIT 50
+    `,
+    [search, search, search],
+  );
+
+  return rows.map((row) => ({
+    id: Number(row.id),
+    username: row.username ?? "",
+    displayName: row.display_name ?? "",
+    email: row.email ?? "",
+    prizeCount: Number(row.prize_count ?? 0),
+    activeCount: Number(row.active_count ?? 0),
+    spentValueUsd: Number(row.spent_value ?? 0),
+    withdrawnValueUsd: Number(row.withdrawn_value ?? 0),
+  }));
+}
+
+async function listAdminUserCards(userId) {
+  const connectionPool = await getPool();
+  const [userRows] = await connectionPool.execute(
+    "SELECT id, username, display_name, email FROM users WHERE id = ? LIMIT 1",
+    [userId],
+  );
+
+  if (!userRows[0]) {
+    throw Object.assign(new Error("No encontre ese usuario."), { status: 404 });
+  }
+
+  const [cardRows] = await connectionPool.execute(
+    `
+      SELECT id, pack_id, pack_name, card_json, value_usd, status,
+        shipment_status, tracking_number, shipped_at, delivered_at, acquired_at
+      FROM user_cards
+      WHERE user_id = ?
+      ORDER BY acquired_at DESC
+    `,
+    [userId],
+  );
+
+  const user = userRows[0];
+  return {
+    user: {
+      id: Number(user.id),
+      username: user.username ?? "",
+      displayName: user.display_name ?? "",
+      email: user.email ?? "",
+    },
+    cards: cardRows.map(publicUserCard),
   };
 }
 
@@ -892,7 +1285,7 @@ async function openPackForUser(packId, session) {
     }
 
     const [userRows] = await connection.execute(
-      "SELECT id, username, email, display_name, role, balance_usd, shop_name, shop_slug FROM users WHERE id = ? FOR UPDATE",
+      "SELECT * FROM users WHERE id = ? FOR UPDATE",
       [session.id],
     );
     const buyer = userRows[0];
@@ -943,8 +1336,8 @@ async function openPackForUser(packId, session) {
     }
     const [insertResult] = await connection.execute(
       `
-        INSERT INTO user_cards (user_id, pack_id, pack_name, card_json, value_usd, status)
-        VALUES (?, ?, ?, ?, ?, 'owned')
+        INSERT INTO user_cards (user_id, pack_id, pack_name, card_json, value_usd, paid_price_usd, status)
+        VALUES (?, ?, ?, ?, ?, ?, 'owned')
       `,
       [
         session.id,
@@ -952,10 +1345,11 @@ async function openPackForUser(packId, session) {
         pack.name,
         JSON.stringify(normalizeCard(winner.card)),
         Number(Math.max(0, winner.card.priceUsd ?? 0).toFixed(2)),
+        packPrice,
       ],
     );
     const [updatedUserRows] = await connection.execute(
-      "SELECT id, username, email, display_name, role, balance_usd, shop_name, shop_slug FROM users WHERE id = ? LIMIT 1",
+      "SELECT * FROM users WHERE id = ? LIMIT 1",
       [session.id],
     );
 
@@ -974,13 +1368,54 @@ async function openPackForUser(packId, session) {
   }
 }
 
+function shippingAddressMissingFields(row) {
+  const requiredFields = [
+    ["full_name", "nombre y apellido"],
+    ["country", "pais"],
+    ["province", "provincia"],
+    ["city", "ciudad"],
+    ["street", "calle"],
+    ["street_number", "numero"],
+    ["postal_code", "codigo postal"],
+  ];
+  const missing = requiredFields
+    .filter(([field]) => !asTrimmedString(row?.[field]))
+    .map(([, label]) => label);
+
+  if (
+    asTrimmedString(row?.country) &&
+    asTrimmedString(row.country).toLocaleLowerCase("es") !== "argentina"
+  ) {
+    missing.push("pais habilitado para envios (Argentina)");
+  }
+
+  return missing;
+}
+
 function publicUser(row) {
+  const shippingAddressMissing = shippingAddressMissingFields(row);
+
   return {
     id: Number(row.id),
     username: row.username,
     role: row.role,
     displayName: row.display_name ?? "",
     email: row.email ?? "",
+    fullName: row.full_name ?? "",
+    phone: row.phone ?? "",
+    addressLine1: row.address_line1 ?? "",
+    addressLine2: row.address_line2 ?? "",
+    street: row.street ?? row.address_line1 ?? "",
+    streetNumber: row.street_number ?? "",
+    floor: row.floor ?? "",
+    apartment: row.apartment ?? "",
+    addressReference: row.address_reference ?? row.address_line2 ?? "",
+    city: row.city ?? "",
+    province: row.province ?? "",
+    postalCode: row.postal_code ?? "",
+    country: row.country ?? "",
+    hasShippingAddress: shippingAddressMissing.length === 0,
+    shippingAddressMissing,
     balanceUsd: Number(row.balance_usd ?? 0),
     shopName: row.shop_name ?? "",
     shopSlug: row.shop_slug ?? "",
@@ -1011,7 +1446,7 @@ async function login(body) {
 
   const connectionPool = await getPool();
   const [rows] = await connectionPool.execute(
-    "SELECT id, username, email, display_name, role, balance_usd, shop_name, shop_slug, password_hash, salt FROM users WHERE username = ? LIMIT 1",
+    "SELECT * FROM users WHERE username = ? LIMIT 1",
     [username],
   );
   const user = rows[0];
@@ -1085,7 +1520,7 @@ async function register(body) {
   }
 
   const [rows] = await connectionPool.execute(
-    "SELECT id, username, email, display_name, role, balance_usd, shop_name, shop_slug, password_hash, salt FROM users WHERE username = ? LIMIT 1",
+    "SELECT * FROM users WHERE username = ? LIMIT 1",
     [username],
   );
 
@@ -1095,7 +1530,7 @@ async function register(body) {
 async function getMe(session) {
   const connectionPool = await getPool();
   const [rows] = await connectionPool.execute(
-    "SELECT id, username, email, display_name, role, balance_usd, shop_name, shop_slug FROM users WHERE id = ? LIMIT 1",
+    "SELECT * FROM users WHERE id = ? LIMIT 1",
     [session.id],
   );
   const user = rows[0];
@@ -1113,6 +1548,24 @@ async function updateMe(session, body) {
     120,
   );
   const email = asTrimmedString(body.email).slice(0, 160) || null;
+  const fullName = asTrimmedString(body.fullName).slice(0, 160) || null;
+  const phone = asTrimmedString(body.phone).slice(0, 40) || null;
+  const street = asTrimmedString(body.street ?? body.addressLine1).slice(0, 160) || null;
+  const streetNumber = asTrimmedString(body.streetNumber).slice(0, 30) || null;
+  const floor = asTrimmedString(body.floor).slice(0, 30) || null;
+  const apartment = asTrimmedString(body.apartment).slice(0, 30) || null;
+  const addressReference =
+    asTrimmedString(body.addressReference ?? body.addressLine2).slice(0, 200) ||
+    null;
+  const addressLine1 = [street, streetNumber].filter(Boolean).join(" ") || null;
+  const addressLine2 =
+    [floor && `Piso ${floor}`, apartment && `Depto ${apartment}`, addressReference]
+      .filter(Boolean)
+      .join(" - ") || null;
+  const city = asTrimmedString(body.city).slice(0, 120) || null;
+  const province = asTrimmedString(body.province).slice(0, 120) || null;
+  const postalCode = asTrimmedString(body.postalCode).slice(0, 30) || null;
+  const country = asTrimmedString(body.country).slice(0, 80) || null;
   const password = typeof body.password === "string" ? body.password : "";
   const shopName = session.role === "admin" ? "Pullario" : "";
   const connectionPool = await getPool();
@@ -1127,13 +1580,27 @@ async function updateMe(session, body) {
 
     const { salt, passwordHash } = hashPassword(password);
     await connectionPool.execute(
-      "UPDATE users SET display_name = ?, email = ?, shop_name = COALESCE(NULLIF(?, ''), shop_name), password_hash = ?, salt = ? WHERE id = ?",
-      [displayName, email, shopName, passwordHash, salt, session.id],
+      `UPDATE users SET display_name = ?, email = ?, full_name = ?, phone = ?,
+        address_line1 = ?, address_line2 = ?, street = ?, street_number = ?, floor = ?, apartment = ?,
+        address_reference = ?, city = ?, province = ?, postal_code = ?, country = ?,
+        shop_name = COALESCE(NULLIF(?, ''), shop_name), password_hash = ?, salt = ? WHERE id = ?`,
+      [
+        displayName, email, fullName, phone, addressLine1, addressLine2, street,
+        streetNumber, floor, apartment, addressReference, city, province,
+        postalCode, country, shopName, passwordHash, salt, session.id,
+      ],
     );
   } else {
     await connectionPool.execute(
-      "UPDATE users SET display_name = ?, email = ?, shop_name = COALESCE(NULLIF(?, ''), shop_name) WHERE id = ?",
-      [displayName, email, shopName, session.id],
+      `UPDATE users SET display_name = ?, email = ?, full_name = ?, phone = ?,
+        address_line1 = ?, address_line2 = ?, street = ?, street_number = ?, floor = ?, apartment = ?,
+        address_reference = ?, city = ?, province = ?, postal_code = ?, country = ?,
+        shop_name = COALESCE(NULLIF(?, ''), shop_name) WHERE id = ?`,
+      [
+        displayName, email, fullName, phone, addressLine1, addressLine2, street,
+        streetNumber, floor, apartment, addressReference, city, province,
+        postalCode, country, shopName, session.id,
+      ],
     );
   }
 
@@ -1145,7 +1612,7 @@ async function updateMe(session, body) {
   }
 
   const [rows] = await connectionPool.execute(
-    "SELECT id, username, email, display_name, role, balance_usd, shop_name, shop_slug FROM users WHERE id = ? LIMIT 1",
+    "SELECT * FROM users WHERE id = ? LIMIT 1",
     [session.id],
   );
   const user = publicUser(rows[0]);
@@ -1180,7 +1647,7 @@ async function topUpWallet(session, body) {
   );
 
   const [rows] = await connectionPool.execute(
-    "SELECT id, username, email, display_name, role, balance_usd, shop_name, shop_slug FROM users WHERE id = ? LIMIT 1",
+    "SELECT * FROM users WHERE id = ? LIMIT 1",
     [session.id],
   );
 
@@ -1216,7 +1683,7 @@ async function sellUserCard(session, cardId) {
       [value, session.id],
     );
     const [userRows] = await connection.execute(
-      "SELECT id, username, email, display_name, role, balance_usd, shop_name, shop_slug FROM users WHERE id = ? LIMIT 1",
+      "SELECT * FROM users WHERE id = ? LIMIT 1",
       [session.id],
     );
     await connection.commit();
@@ -1236,6 +1703,25 @@ async function withdrawUserCard(session, cardId) {
 
   try {
     await connection.beginTransaction();
+    const [addressRows] = await connection.execute(
+      `SELECT full_name, street, street_number, city, province, postal_code, country
+       FROM users WHERE id = ? LIMIT 1 FOR UPDATE`,
+      [session.id],
+    );
+    const address = addressRows[0];
+    const missingAddressFields = shippingAddressMissingFields(address);
+
+    if (missingAddressFields.length) {
+      throw Object.assign(
+        new Error(
+          `Completa estos datos antes de retirar premios: ${missingAddressFields.join(
+            ", ",
+          )}.`,
+        ),
+        { status: 400, code: "SHIPPING_ADDRESS_REQUIRED" },
+      );
+    }
+
     const [cardRows] = await connection.execute(
       `
         SELECT id, card_json, status, pack_id
@@ -1295,7 +1781,7 @@ async function withdrawUserCard(session, cardId) {
       [stockItem.id],
     );
     await connection.execute(
-      "UPDATE user_cards SET status = 'withdrawn' WHERE id = ?",
+      "UPDATE user_cards SET status = 'withdrawn', shipment_status = 'pending', tracking_number = NULL, shipped_at = NULL, delivered_at = NULL WHERE id = ?",
       [cardId],
     );
     await connection.commit();
@@ -1485,6 +1971,83 @@ async function handleRequest(request, response) {
     }
 
     sendJson(response, 200, await listShopOrders());
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/api/admin/orders/ship") {
+    const session = requireSeller(request);
+
+    if (!session) {
+      sendJson(response, 401, { error: "Inicia sesion como administrador." });
+      return;
+    }
+
+    sendJson(
+      response,
+      200,
+      await markShopOrdersShipped(await readJsonBody(request)),
+    );
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/admin/shipments") {
+    const session = requireSeller(request);
+
+    if (!session) {
+      sendJson(response, 401, { error: "Inicia sesion como administrador." });
+      return;
+    }
+
+    sendJson(response, 200, await listShopShipments());
+    return;
+  }
+
+  if (
+    request.method === "POST" &&
+    pathname === "/api/admin/shipments/deliver"
+  ) {
+    const session = requireSeller(request);
+
+    if (!session) {
+      sendJson(response, 401, { error: "Inicia sesion como administrador." });
+      return;
+    }
+
+    sendJson(
+      response,
+      200,
+      await markShipmentDelivered(await readJsonBody(request)),
+    );
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/admin/users") {
+    const session = requireSeller(request);
+
+    if (!session) {
+      sendJson(response, 401, { error: "Inicia sesion como administrador." });
+      return;
+    }
+
+    sendJson(response, 200, {
+      users: await listAdminUsers(url.searchParams.get("query") ?? ""),
+    });
+    return;
+  }
+
+  if (
+    request.method === "GET" &&
+    /^\/api\/admin\/users\/\d+\/cards$/.test(pathname)
+  ) {
+    const session = requireSeller(request);
+
+    if (!session) {
+      sendJson(response, 401, { error: "Inicia sesion como administrador." });
+      return;
+    }
+
+    const userId = Number(pathname.split("/")[4]);
+    sendJson(response, 200, await listAdminUserCards(userId));
     return;
   }
 

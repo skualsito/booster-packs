@@ -4,30 +4,37 @@
 import {
   ArrowLeft,
   ArrowRight,
+  ArrowUpDown,
   Boxes,
+  ChevronDown,
+  CircleCheck,
+  CircleX,
   Database,
   Dice5,
   Eye,
-  Gauge,
   Info,
   LockKeyhole,
   LogIn,
   Home,
   PackageOpen,
+  Pencil,
   Plus,
   RotateCcw,
   Save,
   Search,
+  Send,
   Settings,
   ShieldCheck,
   Sparkles,
   Trash2,
   Trophy,
+  Truck,
+  TriangleAlert,
   User,
   UserPlus,
   Wallet,
   X,
-} from "lucide-react";
+} from "./MaterialIcons";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, SyntheticEvent } from "react";
@@ -70,10 +77,19 @@ type SearchState = {
   results: ExternalCard[];
   error: string;
   loading: boolean;
+  loadingMore: boolean;
+  hasMore: boolean;
+  page: number;
+  sort: "relevance" | "price-asc" | "price-desc" | "number-desc";
 };
 
 type SearchResponse = {
   cards?: ExternalCard[];
+  meta?: {
+    hasMore?: boolean;
+    page?: number;
+    total?: number;
+  };
   error?: string;
 };
 
@@ -115,6 +131,10 @@ type UserCardItem = {
   card: ExternalCard;
   valueUsd: number;
   status: "owned" | "waiting_stock" | "sold" | "withdrawn";
+  shipmentStatus?: "pending" | "shipped" | "delivered";
+  trackingNumber?: string;
+  shippedAt?: string;
+  deliveredAt?: string;
   acquiredAt?: string;
 };
 
@@ -136,6 +156,10 @@ type ShopOrderItem = {
   card: ExternalCard;
   valueUsd: number;
   status: "owned" | "waiting_stock" | "sold" | "withdrawn";
+  shipmentStatus?: "pending" | "shipped" | "delivered";
+  trackingNumber?: string;
+  shippedAt?: string;
+  deliveredAt?: string;
   acquiredAt?: string;
 };
 
@@ -145,6 +169,46 @@ type ShopOrdersResponse = {
   waitingStockCount?: number;
   withdrawnCount?: number;
   soldCount?: number;
+  error?: string;
+};
+
+type ShipOrdersResponse = {
+  ok?: boolean;
+  shippedCount?: number;
+  error?: string;
+};
+
+type ShopShipmentsResponse = {
+  active?: ShopOrderItem[];
+  history?: ShopOrderItem[];
+  error?: string;
+};
+
+type DeliverShipmentResponse = {
+  ok?: boolean;
+  deliveredCount?: number;
+  error?: string;
+};
+
+type AdminUserSummary = {
+  id: number;
+  username: string;
+  displayName?: string;
+  email?: string;
+  prizeCount: number;
+  activeCount: number;
+  spentValueUsd: number;
+  withdrawnValueUsd: number;
+};
+
+type AdminUsersResponse = {
+  users?: AdminUserSummary[];
+  error?: string;
+};
+
+type AdminUserCardsResponse = {
+  user?: Pick<AdminUserSummary, "id" | "username" | "displayName" | "email">;
+  cards?: UserCardItem[];
   error?: string;
 };
 
@@ -186,6 +250,21 @@ type LoginResponse = {
     role: UserRole;
     displayName?: string;
     email?: string;
+    fullName?: string;
+    phone?: string;
+    addressLine1?: string;
+    addressLine2?: string;
+    street?: string;
+    streetNumber?: string;
+    floor?: string;
+    apartment?: string;
+    addressReference?: string;
+    city?: string;
+    province?: string;
+    postalCode?: string;
+    country?: string;
+    hasShippingAddress?: boolean;
+    shippingAddressMissing?: string[];
     balanceUsd?: number;
   };
   error?: string;
@@ -198,6 +277,21 @@ type SessionAuth = {
   role: UserRole;
   displayName?: string;
   email?: string;
+  fullName?: string;
+  phone?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  street?: string;
+  streetNumber?: string;
+  floor?: string;
+  apartment?: string;
+  addressReference?: string;
+  city?: string;
+  province?: string;
+  postalCode?: string;
+  country?: string;
+  hasShippingAddress?: boolean;
+  shippingAddressMissing?: string[];
   balanceUsd?: number;
 };
 
@@ -209,6 +303,8 @@ type AppView =
   | "admin-stock"
   | "admin-packs"
   | "admin-orders"
+  | "admin-shipments"
+  | "admin-users"
   | "profile"
   | "cards";
 
@@ -286,6 +382,32 @@ const gameAccents: Record<PackGame, string> = {
 };
 
 const cardGames: CardGame[] = ["one-piece", "pokemon", "magic"];
+const argentinaProvinces = [
+  "Buenos Aires",
+  "Ciudad Autonoma de Buenos Aires",
+  "Catamarca",
+  "Chaco",
+  "Chubut",
+  "Cordoba",
+  "Corrientes",
+  "Entre Rios",
+  "Formosa",
+  "Jujuy",
+  "La Pampa",
+  "La Rioja",
+  "Mendoza",
+  "Misiones",
+  "Neuquen",
+  "Rio Negro",
+  "Salta",
+  "San Juan",
+  "San Luis",
+  "Santa Cruz",
+  "Santa Fe",
+  "Santiago del Estero",
+  "Tierra del Fuego",
+  "Tucuman",
+];
 
 const prizeItemTypes: PrizeItemType[] = ["card", "sealed-pack", "sealed-box"];
 
@@ -594,6 +716,10 @@ const newSearchState = (game: CardGame, query: string): SearchState => ({
   results: [],
   error: "",
   loading: false,
+  loadingMore: false,
+  hasMore: false,
+  page: 0,
+  sort: "relevance",
 });
 
 const localApiUrl = (path: string) => `${LOCAL_API_BASE}${path}`;
@@ -979,9 +1105,23 @@ export function BoosterMarket({
   const [adminSaving, setAdminSaving] = useState(false);
   const [profileDisplayName, setProfileDisplayName] = useState("");
   const [profileEmail, setProfileEmail] = useState("");
+  const [profileFullName, setProfileFullName] = useState("");
+  const [profilePhone, setProfilePhone] = useState("");
+  const [profileStreet, setProfileStreet] = useState("");
+  const [profileStreetNumber, setProfileStreetNumber] = useState("");
+  const [profileFloor, setProfileFloor] = useState("");
+  const [profileApartment, setProfileApartment] = useState("");
+  const [profileAddressReference, setProfileAddressReference] = useState("");
+  const [profileCity, setProfileCity] = useState("");
+  const [profileProvince, setProfileProvince] = useState("");
+  const [profilePostalCode, setProfilePostalCode] = useState("");
+  const [profileCountry, setProfileCountry] = useState("Argentina");
   const [profilePassword, setProfilePassword] = useState("");
   const [profileMessage, setProfileMessage] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
+  const [profileSectionView, setProfileSectionView] = useState<
+    "personal" | "inventory"
+  >("personal");
   const [publicSearch, setPublicSearch] = useState<SearchState>(
     newSearchState("one-piece", ""),
   );
@@ -992,16 +1132,31 @@ export function BoosterMarket({
     null,
   );
   const [walletOpen, setWalletOpen] = useState(false);
-  const [walletAmount, setWalletAmount] = useState(50);
+  const [walletAmount, setWalletAmount] = useState("50");
   const [walletMessage, setWalletMessage] = useState("");
   const [walletSaving, setWalletSaving] = useState(false);
   const [wonCardsOpen, setWonCardsOpen] = useState(false);
   const [wonCards, setWonCards] = useState<UserCardItem[]>([]);
   const [wonCardsMessage, setWonCardsMessage] = useState("");
+  const [wonCardsMessageTone, setWonCardsMessageTone] = useState<
+    "info" | "success" | "warning" | "error"
+  >("info");
   const [wonCardBusyId, setWonCardBusyId] = useState<number | null>(null);
+  const [inventoryActiveOnly, setInventoryActiveOnly] = useState(false);
+  const [inventoryPriceSort, setInventoryPriceSort] = useState<
+    "price-desc" | "price-asc"
+  >("price-desc");
+  const [profilePrizeView, setProfilePrizeView] = useState<
+    "inventory" | "shipments"
+  >("inventory");
   const [shopStock, setShopStock] = useState<ShopStockItem[]>([]);
   const [stockMessage, setStockMessage] = useState("");
   const [stockBusyId, setStockBusyId] = useState<number | null>(null);
+  const [stockEditor, setStockEditor] = useState<ShopStockItem | null>(null);
+  const [stockEditPrice, setStockEditPrice] = useState("");
+  const [stockEditImageUrl, setStockEditImageUrl] = useState("");
+  const [stockEditError, setStockEditError] = useState("");
+  const [stockEditSaving, setStockEditSaving] = useState(false);
   const [stockQuantityDrafts, setStockQuantityDrafts] = useState<
     Record<number, string>
   >({});
@@ -1030,12 +1185,43 @@ export function BoosterMarket({
   const [manualSealedOpen, setManualSealedOpen] = useState(false);
   const [shopOrders, setShopOrders] = useState<ShopOrderItem[]>([]);
   const [ordersMessage, setOrdersMessage] = useState("");
+  const [selectedShipmentIds, setSelectedShipmentIds] = useState<number[]>([]);
+  const [shippingModalOpen, setShippingModalOpen] = useState(false);
+  const [shipmentTrackingNumber, setShipmentTrackingNumber] = useState("");
+  const [shippingOrders, setShippingOrders] = useState(false);
+  const [activeShipments, setActiveShipments] = useState<ShopOrderItem[]>([]);
+  const [shipmentHistory, setShipmentHistory] = useState<ShopOrderItem[]>([]);
+  const [shipmentView, setShipmentView] = useState<"active" | "history">(
+    "active",
+  );
+  const [shipmentsMessage, setShipmentsMessage] = useState("");
+  const [shipmentBusyKey, setShipmentBusyKey] = useState<string | null>(null);
+  const [adminUsers, setAdminUsers] = useState<AdminUserSummary[]>([]);
+  const [adminUserQuery, setAdminUserQuery] = useState("");
+  const [selectedAdminUser, setSelectedAdminUser] =
+    useState<AdminUserSummary | null>(null);
+  const [adminUserCards, setAdminUserCards] = useState<UserCardItem[]>([]);
+  const [adminUsersMessage, setAdminUsersMessage] = useState("");
+  const [adminUsersLoading, setAdminUsersLoading] = useState(false);
+  const [adminInventoryActiveOnly, setAdminInventoryActiveOnly] =
+    useState(false);
+  const [adminInventoryMinPrice, setAdminInventoryMinPrice] = useState("");
+  const [adminInventoryMaxPrice, setAdminInventoryMaxPrice] = useState("");
+  const [adminInventorySort, setAdminInventorySort] = useState<
+    "price-desc" | "price-asc" | "date-desc" | "date-asc"
+  >("date-desc");
+  const [adminUserView, setAdminUserView] = useState<
+    "inventory" | "shipments"
+  >("inventory");
   const [editingPackId, setEditingPackId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("Caja personalizada");
   const [draftSeries, setDraftSeries] = useState("Mi serie local");
   const [draftGame, setDraftGame] = useState<PackGame>("mixed");
   const [draftPrice, setDraftPrice] = useState(20);
   const [draftItems, setDraftItems] = useState<PackItem[]>([]);
+  const [draftPriceSort, setDraftPriceSort] = useState<
+    "price-desc" | "price-asc"
+  >("price-desc");
   const [recentDrops, setRecentDrops] = useState<RecentDrop[]>([]);
   const [recentDropsLoading, setRecentDropsLoading] = useState(false);
   const [openingPack, setOpeningPack] = useState(false);
@@ -1049,6 +1235,15 @@ export function BoosterMarket({
   const [celebratingRunId, setCelebratingRunId] = useState<number | null>(null);
   const spinTimers = useRef<number[]>([]);
   const audioContextRef = useRef<AudioContext | null>(null);
+
+  useEffect(() => {
+    if (!wonCardsMessage) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => setWonCardsMessage(""), 8000);
+    return () => window.clearTimeout(timer);
+  }, [wonCardsMessage]);
 
   useEffect(() => {
     const storedSession = parseSessionAuth(
@@ -1065,6 +1260,62 @@ export function BoosterMarket({
     setSession(storedSession);
     setProfileDisplayName(storedSession.displayName ?? "");
     setProfileEmail(storedSession.email ?? "");
+    setProfileFullName(storedSession.fullName ?? "");
+    setProfilePhone(storedSession.phone ?? "");
+    setProfileStreet(storedSession.street ?? storedSession.addressLine1 ?? "");
+    setProfileStreetNumber(storedSession.streetNumber ?? "");
+    setProfileFloor(storedSession.floor ?? "");
+    setProfileApartment(storedSession.apartment ?? "");
+    setProfileAddressReference(
+      storedSession.addressReference ?? storedSession.addressLine2 ?? "",
+    );
+    setProfileCity(storedSession.city ?? "");
+    setProfileProvince(storedSession.province ?? "");
+    setProfilePostalCode(storedSession.postalCode ?? "");
+    setProfileCountry(storedSession.country ?? "Argentina");
+
+    void fetch(localApiUrl("/api/me"), {
+      headers: { Authorization: `Bearer ${storedSession.token}` },
+    })
+      .then(async (response) => {
+        const payload = (await response.json()) as LoginResponse;
+
+        if (!response.ok || !payload.user) {
+          if (response.status === 401) {
+            setSession(null);
+            localStorage.removeItem(AUTH_STORAGE_KEY);
+          }
+          return;
+        }
+
+        const refreshedSession: SessionAuth = {
+          ...storedSession,
+          ...payload.user,
+          token: storedSession.token,
+        };
+        setSession(refreshedSession);
+        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(refreshedSession));
+        setProfileDisplayName(refreshedSession.displayName ?? "");
+        setProfileEmail(refreshedSession.email ?? "");
+        setProfileFullName(refreshedSession.fullName ?? "");
+        setProfilePhone(refreshedSession.phone ?? "");
+        setProfileStreet(
+          refreshedSession.street ?? refreshedSession.addressLine1 ?? "",
+        );
+        setProfileStreetNumber(refreshedSession.streetNumber ?? "");
+        setProfileFloor(refreshedSession.floor ?? "");
+        setProfileApartment(refreshedSession.apartment ?? "");
+        setProfileAddressReference(
+          refreshedSession.addressReference ??
+            refreshedSession.addressLine2 ??
+            "",
+        );
+        setProfileCity(refreshedSession.city ?? "");
+        setProfileProvince(refreshedSession.province ?? "");
+        setProfilePostalCode(refreshedSession.postalCode ?? "");
+        setProfileCountry(refreshedSession.country ?? "Argentina");
+      })
+      .catch(() => undefined);
   }, []);
 
   const loadDbPacks = useCallback(async () => {
@@ -1107,6 +1358,7 @@ export function BoosterMarket({
       setWonCards(payload.cards ?? []);
       return payload.cards ?? [];
     } catch (error) {
+      setWonCardsMessageTone("error");
       setWonCardsMessage(
         error instanceof Error ? error.message : "No se pudo leer tus cartas.",
       );
@@ -1160,6 +1412,11 @@ export function BoosterMarket({
       }
 
       setShopOrders(payload.orders);
+      setOrdersMessage("");
+      const activeOrderIds = new Set(payload.orders.map((order) => order.id));
+      setSelectedShipmentIds((current) =>
+        current.filter((orderId) => activeOrderIds.has(orderId)),
+      );
       return payload.orders;
     } catch (error) {
       setOrdersMessage(
@@ -1170,6 +1427,230 @@ export function BoosterMarket({
       return [];
     }
   }, [session]);
+
+  const toggleShipmentSelection = (orderId: number) => {
+    const targetOrder = shopOrders.find((order) => order.id === orderId);
+
+    if (!targetOrder) {
+      return;
+    }
+
+    setSelectedShipmentIds((current) => {
+      if (current.includes(orderId)) {
+        return current.filter((id) => id !== orderId);
+      }
+
+      const selectedUserId = shopOrders.find(
+        (order) => order.id === current[0],
+      )?.userId;
+
+      return selectedUserId && selectedUserId !== targetOrder.userId
+        ? [orderId]
+        : [...current, orderId];
+    });
+  };
+
+  const markSelectedOrdersShipped = async () => {
+    if (
+      !session ||
+      !isSellerRole(session.role) ||
+      !selectedShipmentsReady ||
+      shipmentTrackingNumber.trim().length < 3
+    ) {
+      return;
+    }
+
+    setShippingOrders(true);
+    setOrdersMessage("");
+
+    try {
+      const response = await fetch(localApiUrl("/api/admin/orders/ship"), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          shipments: selectedShipmentIds.map((id) => ({
+            id,
+            trackingNumber: shipmentTrackingNumber.trim(),
+          })),
+        }),
+      });
+      const payload = (await response.json()) as ShipOrdersResponse;
+
+      if (!response.ok || payload.error || !payload.ok) {
+        throw new Error(payload.error ?? "No se pudieron confirmar los envios.");
+      }
+
+      const shippedCount = payload.shippedCount ?? selectedShipmentIds.length;
+      setSelectedShipmentIds([]);
+      setShipmentTrackingNumber("");
+      setShippingModalOpen(false);
+      await loadShopOrders();
+      setOrdersMessage(
+        `${shippedCount} ${shippedCount === 1 ? "retiro marcado" : "retiros marcados"} como enviado.`,
+      );
+    } catch (error) {
+      setOrdersMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudieron confirmar los envios.",
+      );
+    } finally {
+      setShippingOrders(false);
+    }
+  };
+
+  const loadShopShipments = useCallback(async () => {
+    if (!session || !isSellerRole(session.role)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(localApiUrl("/api/admin/shipments"), {
+        headers: { Authorization: `Bearer ${session.token}` },
+      });
+      const payload = (await response.json()) as ShopShipmentsResponse;
+
+      if (
+        !response.ok ||
+        payload.error ||
+        !Array.isArray(payload.active) ||
+        !Array.isArray(payload.history)
+      ) {
+        throw new Error(payload.error ?? "No se pudieron leer los envios.");
+      }
+
+      setActiveShipments(payload.active);
+      setShipmentHistory(payload.history);
+      setShipmentsMessage("");
+    } catch (error) {
+      setShipmentsMessage(
+        error instanceof Error ? error.message : "No se pudieron leer los envios.",
+      );
+    }
+  }, [session]);
+
+  const markShipmentReceived = async (ids: number[], shipmentKey: string) => {
+    if (!session || !isSellerRole(session.role) || !ids.length) {
+      return;
+    }
+
+    setShipmentBusyKey(shipmentKey);
+    setShipmentsMessage("");
+
+    try {
+      const response = await fetch(localApiUrl("/api/admin/shipments/deliver"), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ ids }),
+      });
+      const payload = (await response.json()) as DeliverShipmentResponse;
+
+      if (!response.ok || payload.error || !payload.ok) {
+        throw new Error(payload.error ?? "No se pudo confirmar la entrega.");
+      }
+
+      await loadShopShipments();
+      setShipmentsMessage("Entrega confirmada y guardada en el historial.");
+    } catch (error) {
+      setShipmentsMessage(
+        error instanceof Error ? error.message : "No se pudo confirmar la entrega.",
+      );
+    } finally {
+      setShipmentBusyKey(null);
+    }
+  };
+
+  const loadAdminUsers = useCallback(
+    async (query = "") => {
+      if (!session || !isSellerRole(session.role)) {
+        return;
+      }
+
+      setAdminUsersLoading(true);
+      setAdminUsersMessage("");
+
+      try {
+        const params = new URLSearchParams({ query: query.trim() });
+        const response = await fetch(
+          localApiUrl(`/api/admin/users?${params.toString()}`),
+          { headers: { Authorization: `Bearer ${session.token}` } },
+        );
+        const payload = (await response.json()) as AdminUsersResponse;
+
+        if (!response.ok || payload.error || !Array.isArray(payload.users)) {
+          throw new Error(payload.error ?? "No se pudieron leer los usuarios.");
+        }
+
+        const normalizedUsers = payload.users.map((user) => ({
+          ...user,
+          spentValueUsd: Number.isFinite(Number(user.spentValueUsd))
+            ? Number(user.spentValueUsd)
+            : 0,
+          withdrawnValueUsd: Number.isFinite(Number(user.withdrawnValueUsd))
+            ? Number(user.withdrawnValueUsd)
+            : 0,
+        }));
+
+        setAdminUsers(normalizedUsers);
+        setSelectedAdminUser((currentUser) => {
+          if (!currentUser) {
+            return null;
+          }
+
+          return (
+            normalizedUsers.find((user) => user.id === currentUser.id) ??
+            currentUser
+          );
+        });
+      } catch (error) {
+        setAdminUsersMessage(
+          error instanceof Error
+            ? error.message
+            : "No se pudieron leer los usuarios.",
+        );
+      } finally {
+        setAdminUsersLoading(false);
+      }
+    },
+    [session],
+  );
+
+  const loadAdminUserCards = async (user: AdminUserSummary) => {
+    if (!session || !isSellerRole(session.role)) {
+      return;
+    }
+
+    setSelectedAdminUser(user);
+    setAdminUserCards([]);
+    setAdminUsersLoading(true);
+    setAdminUsersMessage("");
+
+    try {
+      const response = await fetch(
+        localApiUrl(`/api/admin/users/${encodeURIComponent(user.id)}/cards`),
+        { headers: { Authorization: `Bearer ${session.token}` } },
+      );
+      const payload = (await response.json()) as AdminUserCardsResponse;
+
+      if (!response.ok || payload.error || !Array.isArray(payload.cards)) {
+        throw new Error(payload.error ?? "No se pudo leer el inventario.");
+      }
+
+      setAdminUserCards(payload.cards);
+    } catch (error) {
+      setAdminUsersMessage(
+        error instanceof Error ? error.message : "No se pudo leer el inventario.",
+      );
+    } finally {
+      setAdminUsersLoading(false);
+    }
+  };
 
   const loadRecentDrops = useCallback(async (packId: string) => {
     if (!packId.trim()) {
@@ -1243,6 +1724,36 @@ export function BoosterMarket({
   }, [loadShopOrders, session?.role]);
 
   useEffect(() => {
+    if (
+      !isSellerRole(session?.role) ||
+      (view !== "admin-shipments" && view !== "admin")
+    ) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void loadShopShipments();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [loadShopShipments, session?.role, view]);
+
+  useEffect(() => {
+    if (
+      !isSellerRole(session?.role) ||
+      (view !== "admin-users" && view !== "admin")
+    ) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void loadAdminUsers();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [loadAdminUsers, session?.role, view]);
+
+  useEffect(() => {
     return () => {
       spinTimers.current.forEach((timer) => window.clearTimeout(timer));
       if (audioContextRef.current) {
@@ -1293,7 +1804,30 @@ export function BoosterMarket({
       return [];
     }
 
-    return selectedPack.items.slice(0, 5).map((item, index) => ({
+    const seed = Array.from(selectedPack.id).reduce(
+      (total, character) => total + character.charCodeAt(0),
+      0,
+    );
+    const orderedItems = [...selectedPack.items].sort((first, second) => {
+      const firstScore = Array.from(`${first.slotId}-${seed}`).reduce(
+        (total, character) => (total * 31 + character.charCodeAt(0)) % 2147483647,
+        7,
+      );
+      const secondScore = Array.from(`${second.slotId}-${seed}`).reduce(
+        (total, character) => (total * 31 + character.charCodeAt(0)) % 2147483647,
+        7,
+      );
+
+      return firstScore - secondScore;
+    });
+    const previewLength = Math.max(10, orderedItems.length);
+    const previewItems = Array.from({ length: previewLength }, (_, index) =>
+      index < orderedItems.length
+        ? orderedItems[index]
+        : orderedItems[(seed + index * 7) % orderedItems.length],
+    );
+
+    return previewItems.map((item, index) => ({
       ...item,
       spinKey: `idle-${selectedPack.id}-${index}`,
     }));
@@ -1311,16 +1845,70 @@ export function BoosterMarket({
     (total, item) => total + Math.max(0, item.valueUsd),
     0,
   );
-  const lifetimeWonCardsValue = wonCards.reduce(
-    (total, item) => total + Math.max(0, item.valueUsd),
-    0,
-  );
-  const reservedOrderCount = shopOrders.filter(
-    (item) => item.status === "owned",
-  ).length;
-  const waitingStockOrderCount = shopOrders.filter(
-    (item) => item.status === "waiting_stock",
-  ).length;
+  const visibleInventoryCards = wonCards
+    .filter(
+      (item) =>
+        item.status !== "withdrawn" &&
+        (!inventoryActiveOnly ||
+          item.status === "owned" ||
+          item.status === "waiting_stock"),
+    )
+    .sort((left, right) =>
+      inventoryPriceSort === "price-desc"
+        ? right.valueUsd - left.valueUsd
+        : left.valueUsd - right.valueUsd,
+    );
+  const userWithdrawalGroups = Object.values(
+    wonCards
+      .filter((item) => item.status === "withdrawn")
+      .reduce<
+        Record<
+          string,
+          {
+            key: string;
+            trackingNumber?: string;
+            shipmentStatus: "pending" | "shipped" | "delivered";
+            shippedAt?: string;
+            deliveredAt?: string;
+            items: UserCardItem[];
+          }
+        >
+      >((groups, item) => {
+        const shipmentStatus = item.shipmentStatus ?? "pending";
+        const key = item.trackingNumber
+          ? `tracking:${item.trackingNumber}`
+          : `pending:${shipmentStatus}`;
+        const group = groups[key] ?? {
+          key,
+          trackingNumber: item.trackingNumber,
+          shipmentStatus,
+          shippedAt: item.shippedAt,
+          deliveredAt: item.deliveredAt,
+          items: [],
+        };
+
+        group.items.push(item);
+        group.shipmentStatus = shipmentStatus;
+        group.shippedAt = item.shippedAt ?? group.shippedAt;
+        group.deliveredAt = item.deliveredAt ?? group.deliveredAt;
+        groups[key] = group;
+        return groups;
+      }, {}),
+  ).sort((left, right) => {
+    const leftDate =
+      left.deliveredAt ?? left.shippedAt ?? left.items[0]?.acquiredAt ?? "";
+    const rightDate =
+      right.deliveredAt ?? right.shippedAt ?? right.items[0]?.acquiredAt ?? "";
+    return rightDate.localeCompare(leftDate);
+  });
+  const sortedDraftItems = [...draftItems].sort((left, right) => {
+    const leftPrice = left.card.priceUsd ?? 0;
+    const rightPrice = right.card.priceUsd ?? 0;
+
+    return draftPriceSort === "price-desc"
+      ? rightPrice - leftPrice
+      : leftPrice - rightPrice;
+  });
   const withdrawnOrderCount = shopOrders.filter(
     (item) => item.status === "withdrawn",
   ).length;
@@ -1346,6 +1934,152 @@ export function BoosterMarket({
       packPrizeFilter === "all" || itemTypeOf(item.card) === packPrizeFilter;
 
     return gameMatches && filterMatches && typeMatches;
+  }).sort(
+    (left, right) =>
+      (right.card.priceUsd ?? 0) - (left.card.priceUsd ?? 0),
+  );
+  const groupedShopOrders = Object.values(
+    shopOrders.reduce<
+      Record<
+        string,
+        {
+          userId: number;
+          username: string;
+          displayName?: string;
+          orders: ShopOrderItem[];
+        }
+      >
+    >((groups, order) => {
+      const key = String(order.userId);
+      const group = groups[key] ?? {
+        userId: order.userId,
+        username: order.username,
+        displayName: order.displayName,
+        orders: [],
+      };
+
+      group.orders.push(order);
+      groups[key] = group;
+      return groups;
+    }, {}),
+  ).sort((left, right) =>
+    (left.displayName || left.username).localeCompare(
+      right.displayName || right.username,
+    ),
+  );
+  const selectedShipmentsReady = selectedShipmentIds.length > 0;
+  const selectedShipmentUserId = shopOrders.find(
+    (order) => order.id === selectedShipmentIds[0],
+  )?.userId;
+  const groupShipmentItems = (items: ShopOrderItem[]) =>
+    Object.values(
+      items.reduce<
+        Record<
+          string,
+          {
+            key: string;
+            userId: number;
+            username: string;
+            displayName?: string;
+            trackingNumber: string;
+            shippedAt?: string;
+            deliveredAt?: string;
+            items: ShopOrderItem[];
+          }
+        >
+      >((groups, item) => {
+        const trackingNumber = item.trackingNumber || "Sin seguimiento";
+        const key = `${item.userId}:${trackingNumber}`;
+        const group = groups[key] ?? {
+          key,
+          userId: item.userId,
+          username: item.username,
+          displayName: item.displayName,
+          trackingNumber,
+          shippedAt: item.shippedAt,
+          deliveredAt: item.deliveredAt,
+          items: [],
+        };
+
+        group.items.push(item);
+        groups[key] = group;
+        return groups;
+      }, {}),
+    );
+  const activeShipmentGroups = groupShipmentItems(activeShipments);
+  const shipmentHistoryGroups = groupShipmentItems(shipmentHistory);
+  const minAdminPrice = Number(adminInventoryMinPrice);
+  const maxAdminPrice = Number(adminInventoryMaxPrice);
+  const visibleAdminUserCards = adminUserCards
+    .filter((item) => {
+      const activeMatches =
+        !adminInventoryActiveOnly ||
+        item.status === "owned" ||
+        item.status === "waiting_stock";
+      const minMatches =
+        !adminInventoryMinPrice.trim() ||
+        (Number.isFinite(minAdminPrice) && item.valueUsd >= minAdminPrice);
+      const maxMatches =
+        !adminInventoryMaxPrice.trim() ||
+        (Number.isFinite(maxAdminPrice) && item.valueUsd <= maxAdminPrice);
+
+      return activeMatches && minMatches && maxMatches;
+    })
+    .sort((left, right) => {
+      if (adminInventorySort === "price-desc") {
+        return right.valueUsd - left.valueUsd;
+      }
+      if (adminInventorySort === "price-asc") {
+        return left.valueUsd - right.valueUsd;
+      }
+
+      const leftDate = new Date(left.acquiredAt ?? 0).getTime();
+      const rightDate = new Date(right.acquiredAt ?? 0).getTime();
+      return adminInventorySort === "date-desc"
+        ? rightDate - leftDate
+        : leftDate - rightDate;
+    });
+  const adminUserWithdrawalGroups = Object.values(
+    adminUserCards
+      .filter((item) => item.status === "withdrawn")
+      .reduce<
+        Record<
+          string,
+          {
+            key: string;
+            trackingNumber?: string;
+            shipmentStatus: "pending" | "shipped" | "delivered";
+            shippedAt?: string;
+            deliveredAt?: string;
+            items: UserCardItem[];
+          }
+        >
+      >((groups, item) => {
+        const shipmentStatus = item.shipmentStatus ?? "pending";
+        const key = item.trackingNumber
+          ? `tracking:${item.trackingNumber}`
+          : `pending:${shipmentStatus}`;
+        const group = groups[key] ?? {
+          key,
+          trackingNumber: item.trackingNumber,
+          shipmentStatus,
+          shippedAt: item.shippedAt,
+          deliveredAt: item.deliveredAt,
+          items: [],
+        };
+
+        group.items.push(item);
+        groups[key] = group;
+        return groups;
+      }, {}),
+  ).sort((left, right) => {
+    const leftDate = new Date(
+      left.deliveredAt ?? left.shippedAt ?? left.items[0]?.acquiredAt ?? 0,
+    ).getTime();
+    const rightDate = new Date(
+      right.deliveredAt ?? right.shippedAt ?? right.items[0]?.acquiredAt ?? 0,
+    ).getTime();
+    return rightDate - leftDate;
   });
   const stockCountsByGame = cardGames.reduce(
     (counts, game) => ({
@@ -1379,8 +2113,14 @@ export function BoosterMarket({
   const runSearch = async (
     context: "public" | "admin",
     override?: Partial<SearchState>,
+    append = false,
   ) => {
     const current = context === "public" ? publicSearch : adminSearch;
+
+    if (append && (current.loading || current.loadingMore || !current.hasMore)) {
+      return;
+    }
+
     const next = { ...current, ...override };
     const setter = context === "public" ? setPublicSearch : setAdminSearch;
     const query = next.query.trim();
@@ -1392,11 +2132,23 @@ export function BoosterMarket({
         ...next,
         error: "Escribi una carta o un set para buscar.",
         results: [],
+        hasMore: false,
+        loadingMore: false,
+        page: 0,
       });
       return;
     }
 
-    setter({ ...next, loading: true, error: "", results: [] });
+    const requestedPage = append ? current.page + 1 : 1;
+    setter({
+      ...next,
+      loading: !append,
+      loadingMore: append,
+      error: "",
+      results: append ? current.results : [],
+      hasMore: append ? current.hasMore : false,
+      page: append ? current.page : 0,
+    });
 
     try {
       const params = new URLSearchParams({ game: next.game });
@@ -1417,6 +2169,9 @@ export function BoosterMarket({
         params.set("rarity", next.rarity.trim());
       }
 
+      params.set("page", String(requestedPage));
+      params.set("sort", next.sort);
+
       const response = await fetch(`/api/cards/search?${params.toString()}`);
       const payload = (await response.json()) as SearchResponse;
 
@@ -1430,15 +2185,31 @@ export function BoosterMarket({
           currentState.query !== next.query ||
           currentState.setName !== next.setName ||
           currentState.number !== next.number ||
-          currentState.rarity !== next.rarity
+          currentState.rarity !== next.rarity ||
+          currentState.sort !== next.sort
         ) {
           return currentState;
         }
 
+        const incomingCards = payload.cards ?? [];
+        const results = append
+          ? Array.from(
+              new Map(
+                [...currentState.results, ...incomingCards].map((card) => [
+                  `${card.game}:${card.id}`,
+                  card,
+                ]),
+              ).values(),
+            )
+          : incomingCards;
+
         return {
           ...currentState,
-          results: payload.cards ?? [],
+          results,
           loading: false,
+          loadingMore: false,
+          hasMore: payload.meta?.hasMore ?? false,
+          page: payload.meta?.page ?? requestedPage,
           error: "",
         };
       });
@@ -1449,15 +2220,18 @@ export function BoosterMarket({
           currentState.query !== next.query ||
           currentState.setName !== next.setName ||
           currentState.number !== next.number ||
-          currentState.rarity !== next.rarity
+          currentState.rarity !== next.rarity ||
+          currentState.sort !== next.sort
         ) {
           return currentState;
         }
 
         return {
           ...currentState,
-          results: [],
+          results: append ? currentState.results : [],
           loading: false,
+          loadingMore: false,
+          hasMore: false,
           error: error instanceof Error ? error.message : "No se pudo buscar.",
         };
       });
@@ -1469,6 +2243,19 @@ export function BoosterMarket({
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(nextSession));
     setProfileDisplayName(nextSession.displayName ?? "");
     setProfileEmail(nextSession.email ?? "");
+    setProfileFullName(nextSession.fullName ?? "");
+    setProfilePhone(nextSession.phone ?? "");
+    setProfileStreet(nextSession.street ?? nextSession.addressLine1 ?? "");
+    setProfileStreetNumber(nextSession.streetNumber ?? "");
+    setProfileFloor(nextSession.floor ?? "");
+    setProfileApartment(nextSession.apartment ?? "");
+    setProfileAddressReference(
+      nextSession.addressReference ?? nextSession.addressLine2 ?? "",
+    );
+    setProfileCity(nextSession.city ?? "");
+    setProfileProvince(nextSession.province ?? "");
+    setProfilePostalCode(nextSession.postalCode ?? "");
+    setProfileCountry(nextSession.country ?? "Argentina");
   };
 
   const updateSessionUser = (user?: LoginResponse["user"]) => {
@@ -1482,6 +2269,21 @@ export function BoosterMarket({
       role: user.role,
       displayName: user.displayName,
       email: user.email,
+      fullName: user.fullName,
+      phone: user.phone,
+      addressLine1: user.addressLine1,
+      addressLine2: user.addressLine2,
+      street: user.street,
+      streetNumber: user.streetNumber,
+      floor: user.floor,
+      apartment: user.apartment,
+      addressReference: user.addressReference,
+      city: user.city,
+      province: user.province,
+      postalCode: user.postalCode,
+      country: user.country,
+      hasShippingAddress: user.hasShippingAddress,
+      shippingAddressMissing: user.shippingAddressMissing,
       balanceUsd: user.balanceUsd,
     });
   };
@@ -1560,6 +2362,17 @@ export function BoosterMarket({
     setAuthMessage("Sesion cerrada.");
     setProfileDisplayName("");
     setProfileEmail("");
+    setProfileFullName("");
+    setProfilePhone("");
+    setProfileStreet("");
+    setProfileStreetNumber("");
+    setProfileFloor("");
+    setProfileApartment("");
+    setProfileAddressReference("");
+    setProfileCity("");
+    setProfileProvince("");
+    setProfilePostalCode("");
+    setProfileCountry("Argentina");
     setProfilePassword("");
     setWonCards([]);
     setShopStock([]);
@@ -1807,6 +2620,89 @@ export function BoosterMarket({
     }
   };
 
+  const openStockEditor = (stockItem: ShopStockItem) => {
+    setStockEditor(stockItem);
+    setStockEditPrice(
+      typeof stockItem.card.priceUsd === "number"
+        ? String(stockItem.card.priceUsd)
+        : "",
+    );
+    setStockEditImageUrl(stockItem.card.imageUrl ?? "");
+    setStockEditError("");
+  };
+
+  const saveStockDetails = async () => {
+    if (!session || !isSellerRole(session.role) || !stockEditor) {
+      return;
+    }
+
+    const priceUsd = Number(stockEditPrice.replace(",", "."));
+
+    if (!Number.isFinite(priceUsd) || priceUsd < 0) {
+      setStockEditError("Ingresa un precio valido.");
+      return;
+    }
+
+    setStockEditSaving(true);
+    setStockEditError("");
+
+    try {
+      const response = await fetch(
+        localApiUrl(`/api/admin/stock/${encodeURIComponent(stockEditor.id)}`),
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${session.token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            card: {
+              ...stockEditor.card,
+              imageUrl: stockEditImageUrl.trim() || undefined,
+              priceUsd,
+            },
+          }),
+        },
+      );
+      const payload = (await response.json()) as ShopStockResponse;
+
+      if (
+        !response.ok ||
+        payload.error ||
+        !payload.stock ||
+        Array.isArray(payload.stock)
+      ) {
+        throw new Error(payload.error ?? "No se pudo editar el producto.");
+      }
+
+      const updatedStock = payload.stock as ShopStockItem;
+      setShopStock((current) =>
+        current.map((item) =>
+          item.id === updatedStock.id ? updatedStock : item,
+        ),
+      );
+      setDraftItems((current) =>
+        current.map((item) =>
+          item.card.id === updatedStock.card.id &&
+          item.card.game === updatedStock.card.game &&
+          itemTypeOf(item.card) === itemTypeOf(updatedStock.card)
+            ? { ...item, card: updatedStock.card }
+            : item,
+        ),
+      );
+      setStockEditor(null);
+      setStockMessage(`${updatedStock.card.name} actualizado.`);
+    } catch (error) {
+      setStockEditError(
+        error instanceof Error
+          ? error.message
+          : "No se pudo editar el producto.",
+      );
+    } finally {
+      setStockEditSaving(false);
+    }
+  };
+
   const resetDraftPack = () => {
     setEditingPackId(null);
     setDraftName("Caja personalizada");
@@ -1833,6 +2729,13 @@ export function BoosterMarket({
       return;
     }
 
+    const amount = Number(walletAmount);
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setWalletMessage("Ingresa un monto valido mayor a cero.");
+      return;
+    }
+
     setWalletSaving(true);
     setWalletMessage("");
 
@@ -1843,7 +2746,7 @@ export function BoosterMarket({
           Authorization: `Bearer ${session.token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ amount: walletAmount }),
+        body: JSON.stringify({ amount }),
       });
       const payload = (await response.json()) as WalletResponse;
 
@@ -1852,7 +2755,7 @@ export function BoosterMarket({
       }
 
       updateSessionUser(payload.user);
-      setWalletMessage(`Recargaste ${formatUsd.format(walletAmount)}.`);
+      setWalletMessage(`Recargaste ${formatUsd.format(amount)}.`);
     } catch (error) {
       setWalletMessage(
         error instanceof Error
@@ -1891,10 +2794,12 @@ export function BoosterMarket({
       updateSessionUser(payload.user);
       setAuthMessage(`Se descontaron ${formatUsd.format(selectedPack.price)}.`);
       void loadWonCards();
+      setWonCardsMessageTone("success");
       setWonCardsMessage(
         `Premio vendido por ${formatUsd.format(payload.valueUsd ?? 0)}.`,
       );
     } catch (error) {
+      setWonCardsMessageTone("error");
       setWonCardsMessage(
         error instanceof Error ? error.message : "No se pudo vender el premio.",
       );
@@ -1905,6 +2810,18 @@ export function BoosterMarket({
 
   const withdrawWonCard = async (cardId: number) => {
     if (!session) {
+      return;
+    }
+
+    if (!session.hasShippingAddress) {
+      const missing = session.shippingAddressMissing ?? [];
+      setWonCardsMessageTone("warning");
+      setWonCardsMessage(
+        missing.length
+          ? `Completa estos datos antes de retirar premios: ${missing.join(", ")}.`
+          : "Completa tu nombre y domicilio en Datos personales antes de retirar premios.",
+      );
+      setProfileSectionView("personal");
       return;
     }
 
@@ -1932,15 +2849,18 @@ export function BoosterMarket({
 
       void loadWonCards();
       if (payload.waitingForStock) {
+        setWonCardsMessageTone("warning");
         setWonCardsMessage(
           "No hay stock disponible en este momento. Tu retiro queda pendiente y te notificaremos cuando vuelva a haber stock.",
         );
       } else {
+        setWonCardsMessageTone("success");
         setWonCardsMessage(
-          "Retiro confirmado. La unidad fue descontada del stock.",
+          "Retiro confirmado. Pronto te enviaremos por mail el numero de seguimiento del envio.",
         );
       }
     } catch (error) {
+      setWonCardsMessageTone("error");
       setWonCardsMessage(
         error instanceof Error ? error.message : "No se pudo retirar el premio.",
       );
@@ -2078,6 +2998,17 @@ export function BoosterMarket({
         body: JSON.stringify({
           displayName: profileDisplayName,
           email: profileEmail,
+          fullName: profileFullName,
+          phone: profilePhone,
+          street: profileStreet,
+          streetNumber: profileStreetNumber,
+          floor: profileFloor,
+          apartment: profileApartment,
+          addressReference: profileAddressReference,
+          city: profileCity,
+          province: profileProvince,
+          postalCode: profilePostalCode,
+          country: profileCountry,
           password: profilePassword,
         }),
       });
@@ -2093,12 +3024,28 @@ export function BoosterMarket({
         role: payload.user.role,
         displayName: payload.user.displayName,
         email: payload.user.email,
+        fullName: payload.user.fullName,
+        phone: payload.user.phone,
+        addressLine1: payload.user.addressLine1,
+        addressLine2: payload.user.addressLine2,
+        street: payload.user.street,
+        streetNumber: payload.user.streetNumber,
+        floor: payload.user.floor,
+        apartment: payload.user.apartment,
+        addressReference: payload.user.addressReference,
+        city: payload.user.city,
+        province: payload.user.province,
+        postalCode: payload.user.postalCode,
+        country: payload.user.country,
+        hasShippingAddress: payload.user.hasShippingAddress,
+        shippingAddressMissing: payload.user.shippingAddressMissing,
         balanceUsd: payload.user.balanceUsd,
       };
 
       storeSession(nextSession);
       setProfilePassword("");
-      setProfileMessage("Perfil actualizado.");
+      setWonCardsMessageTone("success");
+      setWonCardsMessage("Perfil actualizado.");
     } catch (error) {
       setProfileMessage(
         error instanceof Error
@@ -2311,9 +3258,15 @@ export function BoosterMarket({
         }
       });
     } catch (error) {
-      setAuthMessage(
-        error instanceof Error ? error.message : "No se pudo abrir la caja.",
-      );
+      const message =
+        error instanceof Error ? error.message : "No se pudo abrir la caja.";
+
+      if (message.toLowerCase().includes("saldo insuficiente")) {
+        setWonCardsMessageTone("warning");
+        setWonCardsMessage(message);
+      } else {
+        setAuthMessage(message);
+      }
     } finally {
       setOpeningPack(false);
     }
@@ -2450,7 +3403,7 @@ export function BoosterMarket({
                   <strong>{formatPercent.format(packHitChance(pack))}%</strong>
                 </span>
                 <span className="pack-open-icon" aria-hidden>
-                  <ArrowRight size={19} />
+                  <ArrowRight size={22} />
                 </span>
               </span>
             </Link>
@@ -2585,10 +3538,7 @@ export function BoosterMarket({
           <div className="stage-top">
             <div>
               <span className="eyebrow">Ruleta</span>
-              <h2>{selectedPack.name}</h2>
-              <p>
-                {selectedPack.series} - Pullario
-              </p>
+              <p>Todos los premios posibles participan en cada apertura.</p>
             </div>
             <div className="stage-price">
               <small>Precio</small>
@@ -2718,13 +3668,6 @@ export function BoosterMarket({
 
         <aside className="case-summary">
           <div className="metric-strip">
-            <div>
-              <Gauge size={18} aria-hidden />
-              <span>
-                <small>Hit chance</small>
-                <strong>{formatPercent.format(packHitChance(selectedPack))}%</strong>
-              </span>
-            </div>
             <div>
               <Trophy size={18} aria-hidden />
               <span>
@@ -2900,7 +3843,9 @@ export function BoosterMarket({
       </div>
       <SearchConsole
         actionLabel="Detalles"
+        infinite
         onCardAction={showCardDetails}
+        onLoadMore={() => runSearch("public", undefined, true)}
         onSearch={(override) => runSearch("public", override)}
         search={publicSearch}
         setSearch={setPublicSearch}
@@ -2935,6 +3880,20 @@ export function BoosterMarket({
         <Trophy size={16} aria-hidden />
         Pedidos
       </Link>
+      <Link
+        className={view === "admin-shipments" ? "active" : ""}
+        href="/admin/shipments"
+      >
+        <Truck size={16} aria-hidden />
+        Envios activos
+      </Link>
+      <Link
+        className={view === "admin-users" ? "active" : ""}
+        href="/admin/users"
+      >
+        <User size={16} aria-hidden />
+        Inventarios
+      </Link>
     </nav>
   ) : null;
 
@@ -2949,7 +3908,11 @@ export function BoosterMarket({
           : view === "admin-packs"
             ? "Crear cajas"
             : view === "admin-orders"
-              ? "Pedidos y reservas"
+              ? "Envios pendientes"
+              : view === "admin-shipments"
+                ? "Envios activos"
+                : view === "admin-users"
+                  ? "Inventarios de usuarios"
               : "Panel administrador"}
       </h1>
       <p>
@@ -2958,11 +3921,17 @@ export function BoosterMarket({
           : view === "admin-packs"
             ? "Arma y edita cajas usando unicamente premios disponibles en tu stock."
             : view === "admin-orders"
-              ? "Revisa los premios ganados, vendidos, pendientes de stock o confirmados para retiro."
+              ? "Gestiona unicamente los retiros confirmados que todavia deben enviarse."
+              : view === "admin-shipments"
+                ? "Sigue los paquetes despachados y guarda la confirmacion cuando el usuario los recibe."
+                : view === "admin-users"
+                  ? "Busca usuarios y revisa el historial completo de premios de cada cuenta."
               : "Administra stock, cajas publicadas y premios ganados por usuarios desde secciones separadas."}
       </p>
       {adminNavigation}
-      {adminMessage && <p className="admin-message">{adminMessage}</p>}
+      {view === "admin-packs" && adminMessage && (
+        <p className="admin-message">{adminMessage}</p>
+      )}
     </div>
   );
 
@@ -3134,6 +4103,16 @@ export function BoosterMarket({
             <Plus size={16} aria-hidden />
           </button>
         </div>
+        <button
+          aria-label={`Editar ${stockItem.card.name}`}
+          className="stock-edit-button"
+          disabled={stockBusyId === stockItem.id}
+          onClick={() => openStockEditor(stockItem)}
+          type="button"
+        >
+          <Pencil size={15} aria-hidden />
+          Editar
+        </button>
         {withPackAction && (
           <button
             className="stock-add-pack"
@@ -3155,7 +4134,7 @@ export function BoosterMarket({
       {isSellerRole(session?.role) ? (
         <div className="admin-dashboard-grid">
           <Link className="admin-dashboard-card" href="/admin/stock">
-            <Database size={22} aria-hidden />
+            <Database size={30} aria-hidden />
             <span className="eyebrow">Stock</span>
             <strong>{shopStock.length} productos cargados</strong>
             <small>
@@ -3164,19 +4143,28 @@ export function BoosterMarket({
             </small>
           </Link>
           <Link className="admin-dashboard-card" href="/admin/packs">
-            <PackageOpen size={22} aria-hidden />
+            <PackageOpen size={30} aria-hidden />
             <span className="eyebrow">Cajas</span>
             <strong>{sellerPacks.length} cajas publicadas</strong>
             <small>Crear, editar y normalizar probabilidades.</small>
           </Link>
           <Link className="admin-dashboard-card" href="/admin/orders">
-            <Trophy size={22} aria-hidden />
+            <Trophy size={30} aria-hidden />
             <span className="eyebrow">Pedidos</span>
-            <strong>{reservedOrderCount} premios disponibles</strong>
-            <small>
-              {waitingStockOrderCount} esperando stock y {withdrawnOrderCount}{" "}
-              retiros confirmados.
-            </small>
+            <strong>{withdrawnOrderCount} retiros por enviar</strong>
+            <small>Confirma despachos y registra numeros de seguimiento.</small>
+          </Link>
+          <Link className="admin-dashboard-card" href="/admin/shipments">
+            <Truck size={30} aria-hidden />
+            <span className="eyebrow">Envios activos</span>
+            <strong>{activeShipments.length} premios en camino</strong>
+            <small>Confirma recepciones y consulta entregas anteriores.</small>
+          </Link>
+          <Link className="admin-dashboard-card" href="/admin/users">
+            <User size={30} aria-hidden />
+            <span className="eyebrow">Inventarios</span>
+            <strong>{adminUsers.length} usuarios cargados</strong>
+            <small>Busca cuentas y revisa premios activos o historicos.</small>
           </Link>
         </div>
       ) : (
@@ -3607,10 +4595,21 @@ export function BoosterMarket({
                   <span className="eyebrow">Premios de la caja</span>
                   <h2>{draftItems.length} items</h2>
                 </div>
+                <SortControl
+                  ariaLabel="Ordenar premios por precio"
+                  onChange={(value) =>
+                    setDraftPriceSort(value as "price-desc" | "price-asc")
+                  }
+                  options={[
+                    { value: "price-desc", label: "Mayor a menor" },
+                    { value: "price-asc", label: "Menor a mayor" },
+                  ]}
+                  value={draftPriceSort}
+                />
               </div>
               <div className="draft-list">
                 {draftItems.length ? (
-                  draftItems.map((item) => (
+                  sortedDraftItems.map((item) => (
                     <div
                       className={`draft-item ${itemTypeOf(item.card)}`}
                       key={item.slotId}
@@ -3707,68 +4706,532 @@ export function BoosterMarket({
       {adminShellHeader}
       {isSellerRole(session?.role) ? (
         <div className="orders-panel">
-          <div className="admin-metrics wide">
+          <div className="admin-metrics wide shipping-metrics">
             <span>
-              <small>Ganadas</small>
-              <strong>{reservedOrderCount}</strong>
-            </span>
-            <span>
-              <small>Esperando stock</small>
-              <strong>{waitingStockOrderCount}</strong>
-            </span>
-            <span>
-              <small>Retiro confirmado</small>
+              <small>Retiros activos</small>
               <strong>{withdrawnOrderCount}</strong>
             </span>
             <span>
-              <small>Vendidas</small>
-              <strong>
-                {shopOrders.filter((item) => item.status === "sold").length}
-              </strong>
+              <small>Usuarios</small>
+              <strong>{groupedShopOrders.length}</strong>
             </span>
           </div>
-          <button
-            className="secondary-action compact"
-            onClick={() => void loadShopOrders()}
-            type="button"
-          >
-            <RotateCcw size={16} aria-hidden />
-            Refrescar pedidos
-          </button>
+          <div className="shipping-toolbar">
+            <div>
+              <strong>{selectedShipmentIds.length} seleccionados</strong>
+              <small>
+                Selecciona premios de un mismo usuario para armar un paquete.
+              </small>
+            </div>
+            <div className="shipping-toolbar-actions">
+              <button
+                className="secondary-action compact"
+                onClick={() => void loadShopOrders()}
+                type="button"
+              >
+                <RotateCcw size={16} aria-hidden />
+                Refrescar
+              </button>
+              <button
+                className="primary-action compact"
+                disabled={!selectedShipmentsReady || shippingOrders}
+                onClick={() => setShippingModalOpen(true)}
+                type="button"
+              >
+                <Send size={16} aria-hidden />
+                {shippingOrders ? "Confirmando" : "Marcar como enviados"}
+              </button>
+            </div>
+          </div>
           {ordersMessage && <p className="admin-message">{ordersMessage}</p>}
-          <div className="order-list">
-            {shopOrders.length ? (
-              shopOrders.map((order) => (
-                <article
-                  className={`order-card ${itemTypeOf(order.card)}`}
-                  key={order.id}
-                >
-                  <img
-                    src={cardImage(order.card)}
-                    alt=""
-                    onError={handleImageError(order.card.game)}
-                  />
-                  <div>
-                    <span className={`status-chip ${order.status}`}>
-                      {orderStatusLabels[order.status]}
+          <div className="order-list grouped-orders">
+            {groupedShopOrders.length ? (
+              groupedShopOrders.map((group) => (
+                <section className="order-user-group" key={group.userId}>
+                  <div className="order-user-heading">
+                    <span className="order-user-avatar" aria-hidden>
+                      <User size={18} />
                     </span>
-                    <span className={`prize-type-chip ${itemTypeOf(order.card)}`}>
-                      {prizeTypeLabels[itemTypeOf(order.card)]}
+                    <span>
+                      <strong>{group.displayName || group.username}</strong>
+                      {group.displayName && <small>@{group.username}</small>}
                     </span>
-                    <strong>{order.card.name}</strong>
-                    <small>
-                      {order.packName} - {formatUsd.format(order.valueUsd)}
-                    </small>
-                    <small>
-                      Usuario: {order.displayName || order.username}
-                    </small>
+                    <span className="order-user-count">
+                      {group.orders.length} {group.orders.length === 1 ? "premio" : "premios"}
+                    </span>
+                    <button
+                      className="group-select-action"
+                      onClick={() => {
+                        const groupIds = group.orders.map((order) => order.id);
+                        const allSelected = groupIds.every((id) =>
+                          selectedShipmentIds.includes(id),
+                        );
+                        setSelectedShipmentIds(allSelected ? [] : groupIds);
+                      }}
+                      type="button"
+                    >
+                      {group.orders.every((order) =>
+                        selectedShipmentIds.includes(order.id),
+                      )
+                        ? "Quitar seleccion"
+                        : "Seleccionar todos"}
+                    </button>
+                  </div>
+                  <div className="order-user-items">
+                    {group.orders.map((order) => (
+                      <article
+                        className={`order-card ${itemTypeOf(order.card)}`}
+                        key={order.id}
+                      >
+                        <label className="shipment-checkbox">
+                          <input
+                            checked={selectedShipmentIds.includes(order.id)}
+                            disabled={Boolean(
+                              selectedShipmentUserId &&
+                                selectedShipmentUserId !== order.userId,
+                            )}
+                            onChange={() => toggleShipmentSelection(order.id)}
+                            type="checkbox"
+                          />
+                          <span aria-hidden />
+                          <span className="sr-only">
+                            Seleccionar retiro de {order.card.name}
+                          </span>
+                        </label>
+                        <img
+                          src={cardImage(order.card)}
+                          alt=""
+                          onError={handleImageError(order.card.game)}
+                        />
+                        <div>
+                          <span className={`status-chip ${order.status}`}>
+                            {orderStatusLabels[order.status]}
+                          </span>
+                          <span
+                            className={`prize-type-chip ${itemTypeOf(order.card)}`}
+                          >
+                            {prizeTypeLabels[itemTypeOf(order.card)]}
+                          </span>
+                          <strong>{order.card.name}</strong>
+                          <small>
+                            {order.packName} - {formatUsd.format(order.valueUsd)}
+                          </small>
+                          <small>Ganada: {formatCardDate(order.acquiredAt)}</small>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              ))
+            ) : (
+              <p className="empty-list">
+                No hay retiros confirmados pendientes de envio.
+              </p>
+            )}
+          </div>
+        </div>
+      ) : (
+        sellerRequiredPanel
+      )}
+    </section>
+  );
+
+  const visibleShipmentGroups =
+    shipmentView === "active" ? activeShipmentGroups : shipmentHistoryGroups;
+
+  const adminShipmentsSection = (
+    <section className="admin-band page-section" aria-label="Envios de Pullario">
+      {adminShellHeader}
+      {isSellerRole(session?.role) ? (
+        <div className="shipments-panel">
+          <div className="shipment-view-tabs" aria-label="Estado de los envios">
+            <button
+              className={shipmentView === "active" ? "active" : ""}
+              onClick={() => setShipmentView("active")}
+              type="button"
+            >
+              Activos <span>{activeShipmentGroups.length}</span>
+            </button>
+            <button
+              className={shipmentView === "history" ? "active" : ""}
+              onClick={() => setShipmentView("history")}
+              type="button"
+            >
+              Historial <span>{shipmentHistoryGroups.length}</span>
+            </button>
+            <button
+              className="shipment-refresh"
+              onClick={() => void loadShopShipments()}
+              type="button"
+            >
+              <RotateCcw size={16} aria-hidden />
+              Refrescar
+            </button>
+          </div>
+          {shipmentsMessage && (
+            <p className="admin-message">{shipmentsMessage}</p>
+          )}
+          <div className="shipment-group-list">
+            {visibleShipmentGroups.length ? (
+              visibleShipmentGroups.map((group) => (
+                <article className="shipment-group" key={group.key}>
+                  <div className="shipment-group-heading">
+                    <span className="order-user-avatar" aria-hidden>
+                      <Truck size={18} />
+                    </span>
+                    <div>
+                      <span className="eyebrow">
+                        {shipmentView === "active" ? "En camino" : "Recibido"}
+                      </span>
+                      <strong>{group.displayName || group.username}</strong>
+                      <small>@{group.username}</small>
+                    </div>
+                    <div className="tracking-summary">
+                      <small>Seguimiento</small>
+                      <strong>{group.trackingNumber}</strong>
+                    </div>
+                  </div>
+                  <div className="shipment-prizes">
+                    {group.items.map((item) => (
+                      <div className="shipment-prize" key={item.id}>
+                        <img
+                          src={cardImage(item.card)}
+                          alt=""
+                          onError={handleImageError(item.card.game)}
+                        />
+                        <span>
+                          <strong>{item.card.name}</strong>
+                          <small>{formatUsd.format(item.valueUsd)}</small>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="shipment-group-footer">
+                    <span>
+                      <small>
+                        {shipmentView === "active" ? "Enviado" : "Recibido"}
+                      </small>
+                      <strong>
+                        {formatCardDate(
+                          shipmentView === "active"
+                            ? group.shippedAt
+                            : group.deliveredAt,
+                        )}
+                      </strong>
+                    </span>
+                    {shipmentView === "active" && (
+                      <button
+                        className="primary-action compact"
+                        disabled={shipmentBusyKey === group.key}
+                        onClick={() =>
+                          void markShipmentReceived(
+                            group.items.map((item) => item.id),
+                            group.key,
+                          )
+                        }
+                        type="button"
+                      >
+                        <CircleCheck size={16} aria-hidden />
+                        {shipmentBusyKey === group.key
+                          ? "Confirmando"
+                          : "Marcar como recibido"}
+                      </button>
+                    )}
                   </div>
                 </article>
               ))
             ) : (
               <p className="empty-list">
-                Todavia no hay premios ganados por usuarios en tus cajas.
+                {shipmentView === "active"
+                  ? "No hay envios activos en este momento."
+                  : "Todavia no hay entregas confirmadas."}
               </p>
+            )}
+          </div>
+        </div>
+      ) : (
+        sellerRequiredPanel
+      )}
+    </section>
+  );
+
+  const adminUsersSection = (
+    <section
+      className="admin-band page-section"
+      aria-label="Inventarios de usuarios"
+    >
+      {adminShellHeader}
+      {isSellerRole(session?.role) ? (
+        <div className="admin-users-layout">
+          <aside className="admin-user-browser">
+            <form
+              className="admin-user-search"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void loadAdminUsers(adminUserQuery);
+              }}
+            >
+              <label>
+                Buscar usuario
+                <input
+                  onChange={(event) => setAdminUserQuery(event.target.value)}
+                  placeholder="Usuario, nombre o email"
+                  type="search"
+                  value={adminUserQuery}
+                />
+              </label>
+              <button className="primary-action compact" type="submit">
+                <Search size={16} aria-hidden />
+                Buscar
+              </button>
+            </form>
+            <div className="admin-user-list">
+              {adminUsers.map((user) => (
+                <button
+                  className={selectedAdminUser?.id === user.id ? "active" : ""}
+                  key={user.id}
+                  onClick={() => void loadAdminUserCards(user)}
+                  type="button"
+                >
+                  <span className="order-user-avatar" aria-hidden>
+                    <User size={17} />
+                  </span>
+                  <span>
+                    <strong>{user.displayName || user.username}</strong>
+                    <small>@{user.username}</small>
+                  </span>
+                </button>
+              ))}
+              {!adminUsers.length && !adminUsersLoading && (
+                <p className="empty-list">No se encontraron usuarios.</p>
+              )}
+            </div>
+          </aside>
+
+          <div className="admin-user-inventory">
+            {selectedAdminUser ? (
+              <>
+                <div className="admin-user-inventory-heading">
+                  <div>
+                    <span className="eyebrow">Inventario</span>
+                    <h2>
+                      {selectedAdminUser.displayName || selectedAdminUser.username}
+                    </h2>
+                    <small>@{selectedAdminUser.username}</small>
+                  </div>
+                  <div className="admin-user-totals">
+                    <div className="admin-user-value">
+                      <small>Total gastado</small>
+                      <strong>
+                        {formatUsd.format(
+                          Number(selectedAdminUser.spentValueUsd) || 0,
+                        )}
+                      </strong>
+                    </div>
+                    <div className="admin-user-value">
+                      <small>Valor retirado</small>
+                      <strong>
+                        {formatUsd.format(
+                          Number(selectedAdminUser.withdrawnValueUsd) || 0,
+                        )}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+                <div className="shipment-view-tabs admin-user-view-tabs">
+                  <button
+                    className={adminUserView === "inventory" ? "active" : ""}
+                    onClick={() => setAdminUserView("inventory")}
+                    type="button"
+                  >
+                    <Boxes size={16} aria-hidden />
+                    Inventario
+                  </button>
+                  <button
+                    className={adminUserView === "shipments" ? "active" : ""}
+                    onClick={() => setAdminUserView("shipments")}
+                    type="button"
+                  >
+                    <Truck size={16} aria-hidden />
+                    Retiros y envios
+                  </button>
+                </div>
+                {adminUserView === "inventory" ? (
+                  <>
+                    <div className="admin-inventory-filters">
+                      <label className="switch-control">
+                        <input
+                          checked={adminInventoryActiveOnly}
+                          onChange={(event) =>
+                            setAdminInventoryActiveOnly(event.target.checked)
+                          }
+                          role="switch"
+                          type="checkbox"
+                        />
+                        <span className="switch-track" aria-hidden>
+                          <span />
+                        </span>
+                        <span>Solo activos</span>
+                      </label>
+                      <label>
+                        Precio minimo
+                        <input
+                          inputMode="decimal"
+                          onChange={(event) =>
+                            setAdminInventoryMinPrice(event.target.value)
+                          }
+                          placeholder="0"
+                          type="text"
+                          value={adminInventoryMinPrice}
+                        />
+                      </label>
+                      <label>
+                        Precio maximo
+                        <input
+                          inputMode="decimal"
+                          onChange={(event) =>
+                            setAdminInventoryMaxPrice(event.target.value)
+                          }
+                          placeholder="Sin limite"
+                          type="text"
+                          value={adminInventoryMaxPrice}
+                        />
+                      </label>
+                      <SortControl
+                        ariaLabel="Ordenar inventario del usuario"
+                        onChange={(value) =>
+                          setAdminInventorySort(
+                            value as typeof adminInventorySort,
+                          )
+                        }
+                        options={[
+                          { value: "date-desc", label: "Mas recientes" },
+                          { value: "date-asc", label: "Mas antiguos" },
+                          { value: "price-desc", label: "Mayor precio" },
+                          { value: "price-asc", label: "Menor precio" },
+                        ]}
+                        value={adminInventorySort}
+                      />
+                    </div>
+                    <div className="admin-user-card-list">
+                      {visibleAdminUserCards.map((item) => (
+                        <article
+                          className={`inventory-card ${itemTypeOf(item.card)}`}
+                          key={item.id}
+                        >
+                          <img
+                            src={cardImage(item.card)}
+                            alt=""
+                            onError={handleImageError(item.card.game)}
+                          />
+                          <div>
+                            <span className={`status-chip ${item.status}`}>
+                              {cardStatusLabels[item.status]}
+                            </span>
+                            <strong>{item.card.name}</strong>
+                            <small>
+                              {item.packName} - {formatUsd.format(item.valueUsd)}
+                            </small>
+                            <small>Ganada: {formatCardDate(item.acquiredAt)}</small>
+                          </div>
+                        </article>
+                      ))}
+                      {!visibleAdminUserCards.length && !adminUsersLoading && (
+                        <p className="empty-list">
+                          No hay premios que coincidan con estos filtros.
+                        </p>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="shipment-group-list admin-user-shipments">
+                    {adminUserWithdrawalGroups.map((group) => (
+                      <article className="shipment-group" key={group.key}>
+                        <div className="shipment-group-heading">
+                          <span className="order-user-avatar" aria-hidden>
+                            <Truck size={18} />
+                          </span>
+                          <div>
+                            <span className="eyebrow">
+                              {group.shipmentStatus === "delivered"
+                                ? "Recibido"
+                                : group.shipmentStatus === "shipped"
+                                  ? "En camino"
+                                  : "Pendiente de envio"}
+                            </span>
+                            <strong>
+                              {group.items.length === 1
+                                ? "1 premio en este paquete"
+                                : `${group.items.length} premios en este paquete`}
+                            </strong>
+                          </div>
+                          <div className="tracking-summary">
+                            <small>Numero de seguimiento</small>
+                            <strong>
+                              {group.trackingNumber || "Pendiente de asignar"}
+                            </strong>
+                          </div>
+                        </div>
+                        <div className="shipment-prizes">
+                          {group.items.map((item) => (
+                            <div className="shipment-prize" key={item.id}>
+                              <img
+                                src={cardImage(item.card)}
+                                alt=""
+                                onError={handleImageError(item.card.game)}
+                              />
+                              <span>
+                                <strong>{item.card.name}</strong>
+                                <small>{formatUsd.format(item.valueUsd)}</small>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="shipment-group-footer">
+                          <span>
+                            <small>
+                              {group.shipmentStatus === "delivered"
+                                ? "Recibido"
+                                : group.shipmentStatus === "shipped"
+                                  ? "Enviado"
+                                  : "Retiro solicitado"}
+                            </small>
+                            <strong>
+                              {formatCardDate(
+                                group.deliveredAt ??
+                                  group.shippedAt ??
+                                  group.items[0]?.acquiredAt,
+                              )}
+                            </strong>
+                          </span>
+                          <strong>
+                            {formatUsd.format(
+                              group.items.reduce(
+                                (total, item) => total + item.valueUsd,
+                                0,
+                              ),
+                            )}
+                          </strong>
+                        </div>
+                      </article>
+                    ))}
+                    {!adminUserWithdrawalGroups.length && !adminUsersLoading && (
+                      <p className="empty-list">
+                        Este usuario todavia no tiene retiros confirmados.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="admin-user-empty">
+                <User size={24} aria-hidden />
+                <h2>Selecciona un usuario</h2>
+                <p>Su inventario y sus filtros apareceran en este panel.</p>
+              </div>
+            )}
+            {adminUsersMessage && (
+              <p className="admin-message">{adminUsersMessage}</p>
             )}
           </div>
         </div>
@@ -3785,6 +5248,10 @@ export function BoosterMarket({
         ? adminPacksSection
         : view === "admin-orders"
           ? adminOrdersSection
+          : view === "admin-shipments"
+            ? adminShipmentsSection
+            : view === "admin-users"
+              ? adminUsersSection
           : adminDashboardSection;
 
   const inventoryPanel = (
@@ -3792,7 +5259,7 @@ export function BoosterMarket({
       <div className="panel-heading">
         <div>
           <span className="eyebrow">Inventario</span>
-          <h2>{wonCards.length} premios ganados</h2>
+          <h2>Tus premios</h2>
         </div>
         <button
           className="secondary-action compact"
@@ -3803,94 +5270,230 @@ export function BoosterMarket({
           Refrescar
         </button>
       </div>
-      <div className="admin-metrics wide">
-        <span>
-          <small>Disponible</small>
-          <strong>{formatUsd.format(ownedWonCardsValue)}</strong>
-        </span>
-        <span>
-          <small>Historico</small>
-          <strong>{formatUsd.format(lifetimeWonCardsValue)}</strong>
-        </span>
-        <span>
-          <small>Para retirar</small>
-          <strong>
-            {
-              wonCards.filter(
-                (item) =>
-                  item.status === "waiting_stock" ||
-                  item.status === "withdrawn",
-              ).length
-            }
-          </strong>
-        </span>
+      <div className="shipment-view-tabs profile-prize-tabs">
+        <button
+          className={profilePrizeView === "inventory" ? "active" : ""}
+          onClick={() => setProfilePrizeView("inventory")}
+          type="button"
+        >
+          <Boxes size={16} aria-hidden />
+          Inventario
+        </button>
+        <button
+          className={profilePrizeView === "shipments" ? "active" : ""}
+          onClick={() => setProfilePrizeView("shipments")}
+          type="button"
+        >
+          <Truck size={16} aria-hidden />
+          Retiros y envios
+        </button>
       </div>
-      {wonCardsMessage && <p className="admin-message">{wonCardsMessage}</p>}
-      <div className="inventory-list">
-        {wonCards.length ? (
-          wonCards.map((cardItem) => (
-            <article
-              className={`inventory-card ${itemTypeOf(cardItem.card)}`}
-              key={cardItem.id}
-            >
-              <button
-                className="won-card-image"
-                onClick={() => showCardDetails(cardItem.card)}
-                type="button"
-              >
-                <img
-                  src={cardImage(cardItem.card)}
-                  alt=""
-                  onError={handleImageError(cardItem.card.game)}
-                />
-              </button>
-              <div>
-                <span className={`status-chip ${cardItem.status}`}>
-                  {cardStatusLabels[cardItem.status]}
-                </span>
-                <span className={`prize-type-chip ${itemTypeOf(cardItem.card)}`}>
-                  {prizeTypeLabels[itemTypeOf(cardItem.card)]}
-                </span>
-                <strong>{cardItem.card.name}</strong>
-                <small>
-                  {cardItem.packName} - {formatUsd.format(cardItem.valueUsd)}
-                </small>
-                <small>
-                  {cardItem.card.setName}
-                  {cardItem.card.number ? ` #${cardItem.card.number}` : ""}
-                </small>
-                <small>Ganada: {formatCardDate(cardItem.acquiredAt)}</small>
-              </div>
-              {(cardItem.status === "owned" ||
-                cardItem.status === "waiting_stock") && (
-                <div className="won-card-actions">
+      {!session?.hasShippingAddress && (
+        <div className="profile-address-alert" role="status">
+          <TriangleAlert size={20} aria-hidden />
+          <span>
+            <strong>Completa tu domicilio para retirar premios</strong>
+            <small>
+              Falta: {(
+                session?.shippingAddressMissing ?? ["datos obligatorios"]
+              ).join(", ")}.
+            </small>
+          </span>
+          <button
+            className="secondary-action compact"
+            onClick={() => setProfileSectionView("personal")}
+            type="button"
+          >
+            Completar datos
+          </button>
+        </div>
+      )}
+      {profilePrizeView === "inventory" ? (
+        <>
+          <div className="profile-inventory-value">
+            <small>Valor disponible</small>
+            <strong>{formatUsd.format(ownedWonCardsValue)}</strong>
+          </div>
+          <div className="inventory-toolbar">
+            <label className="switch-control">
+              <input
+                checked={inventoryActiveOnly}
+                onChange={(event) => setInventoryActiveOnly(event.target.checked)}
+                role="switch"
+                type="checkbox"
+              />
+              <span className="switch-track" aria-hidden>
+                <span />
+              </span>
+              <span>Solo activos</span>
+            </label>
+            <SortControl
+              ariaLabel="Ordenar inventario por precio"
+              onChange={(value) =>
+                setInventoryPriceSort(value as "price-desc" | "price-asc")
+              }
+              options={[
+                { value: "price-desc", label: "Mayor a menor" },
+                { value: "price-asc", label: "Menor a mayor" },
+              ]}
+              value={inventoryPriceSort}
+            />
+          </div>
+          <div className="inventory-list">
+            {visibleInventoryCards.length ? (
+              visibleInventoryCards.map((cardItem) => (
+                <article
+                  className={`inventory-card ${itemTypeOf(cardItem.card)}`}
+                  key={cardItem.id}
+                >
                   <button
-                    disabled={wonCardBusyId === cardItem.id}
-                    onClick={() => void sellWonCard(cardItem.id)}
+                    className="won-card-image"
+                    onClick={() => showCardDetails(cardItem.card)}
                     type="button"
                   >
-                    Vender
+                    <img
+                      src={cardImage(cardItem.card)}
+                      alt=""
+                      onError={handleImageError(cardItem.card.game)}
+                    />
                   </button>
-                  <button
-                    disabled={wonCardBusyId === cardItem.id}
-                    onClick={() => void withdrawWonCard(cardItem.id)}
-                    type="button"
-                  >
-                    {cardItem.status === "waiting_stock"
-                      ? "Reintentar retiro"
-                      : "Retirar"}
-                  </button>
+                  <div>
+                    <div className="inventory-card-tags">
+                      <span className={`status-chip ${cardItem.status}`}>
+                        {cardStatusLabels[cardItem.status]}
+                      </span>
+                      <span className={`prize-type-chip ${itemTypeOf(cardItem.card)}`}>
+                        {prizeTypeLabels[itemTypeOf(cardItem.card)]}
+                      </span>
+                    </div>
+                    <strong>{cardItem.card.name}</strong>
+                    <small>
+                      {cardItem.packName} - {formatUsd.format(cardItem.valueUsd)}
+                    </small>
+                    <small>
+                      {cardItem.card.setName}
+                      {cardItem.card.number ? ` #${cardItem.card.number}` : ""}
+                    </small>
+                    <small>Ganada: {formatCardDate(cardItem.acquiredAt)}</small>
+                  </div>
+                  {(cardItem.status === "owned" ||
+                    cardItem.status === "waiting_stock") && (
+                    <div className="won-card-actions">
+                      <button
+                        className="sell-action"
+                        disabled={wonCardBusyId === cardItem.id}
+                        onClick={() => void sellWonCard(cardItem.id)}
+                        type="button"
+                      >
+                        Vender
+                      </button>
+                      <button
+                        className={
+                          cardItem.status === "waiting_stock"
+                            ? "retry-action"
+                            : "withdraw-action"
+                        }
+                        disabled={wonCardBusyId === cardItem.id}
+                        onClick={() => void withdrawWonCard(cardItem.id)}
+                        type="button"
+                      >
+                        {cardItem.status === "waiting_stock" ? (
+                          <RotateCcw size={16} aria-hidden />
+                        ) : (
+                          <Truck size={16} aria-hidden />
+                        )}
+                        {cardItem.status === "waiting_stock"
+                          ? "Reintentar retiro"
+                          : "Retirar"}
+                      </button>
+                    </div>
+                  )}
+                </article>
+              ))
+            ) : (
+              <p className="empty-list">
+                {inventoryActiveOnly
+                  ? "No tenes premios activos para vender o retirar."
+                  : "No hay premios en tu inventario."}
+              </p>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="shipment-group-list profile-shipment-list">
+          {userWithdrawalGroups.map((group) => (
+            <article className="shipment-group" key={group.key}>
+              <div className="shipment-group-heading">
+                <span className="order-user-avatar" aria-hidden>
+                  <Truck size={18} />
+                </span>
+                <div>
+                  <span className="eyebrow">
+                    {group.shipmentStatus === "delivered"
+                      ? "Recibido"
+                      : group.shipmentStatus === "shipped"
+                        ? "En camino"
+                        : "Preparando envio"}
+                  </span>
+                  <strong>
+                    {group.items.length === 1
+                      ? "1 premio en este paquete"
+                      : `${group.items.length} premios en este paquete`}
+                  </strong>
                 </div>
-              )}
+                <div className="tracking-summary">
+                  <small>Numero de seguimiento</small>
+                  <strong>{group.trackingNumber || "Pendiente de asignar"}</strong>
+                </div>
+              </div>
+              <div className="shipment-prizes">
+                {group.items.map((item) => (
+                  <div className="shipment-prize" key={item.id}>
+                    <img
+                      src={cardImage(item.card)}
+                      alt=""
+                      onError={handleImageError(item.card.game)}
+                    />
+                    <span>
+                      <strong>{item.card.name}</strong>
+                      <small>{formatUsd.format(item.valueUsd)}</small>
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="shipment-group-footer">
+                <span>
+                  <small>
+                    {group.shipmentStatus === "delivered"
+                      ? "Recibido"
+                      : group.shipmentStatus === "shipped"
+                        ? "Enviado"
+                        : "Retiro solicitado"}
+                  </small>
+                  <strong>
+                    {formatCardDate(
+                      group.deliveredAt ??
+                        group.shippedAt ??
+                        group.items[0]?.acquiredAt,
+                    )}
+                  </strong>
+                </span>
+                <strong>
+                  {formatUsd.format(
+                    group.items.reduce(
+                      (total, item) => total + item.valueUsd,
+                      0,
+                    ),
+                  )}
+                </strong>
+              </div>
             </article>
-          ))
-        ) : (
-          <p className="empty-list">
-            Todavia no ganaste premios. Cuando abras cajas reales van a aparecer
-            aca.
-          </p>
-        )}
-      </div>
+          ))}
+          {!userWithdrawalGroups.length && (
+            <p className="empty-list">Todavia no tenes retiros confirmados.</p>
+          )}
+        </div>
+      )}
     </section>
   );
 
@@ -3903,59 +5506,290 @@ export function BoosterMarket({
       </div>
 
       {session ? (
-        <div className="profile-layout">
-          <form
-            className="login-panel profile-panel"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void updateProfile();
-            }}
-          >
-            <div className="profile-summary">
-              <span className="db-status online">
-                <User size={16} aria-hidden />
-                {roleLabels[session.role]}
-              </span>
-              <strong>{session.username}</strong>
-              <small>Balance demo {formatUsd.format(session.balanceUsd ?? 0)}</small>
-            </div>
-            <label>
-              Nombre visible
-              <input
-                onChange={(event) => setProfileDisplayName(event.target.value)}
-                value={profileDisplayName}
-              />
-            </label>
-            <label>
-              Email
-              <input
-                onChange={(event) => setProfileEmail(event.target.value)}
-                type="email"
-                value={profileEmail}
-              />
-            </label>
-            <label>
-              Nuevo password
-              <input
-                autoComplete="new-password"
-                onChange={(event) => setProfilePassword(event.target.value)}
-                placeholder="Dejar vacio para no cambiar"
-                type="password"
-                value={profilePassword}
-              />
-            </label>
+        <>
+          <nav className="profile-section-nav" aria-label="Secciones del perfil">
             <button
-              className="primary-action compact"
-              disabled={profileSaving}
-              type="submit"
+              className={profileSectionView === "personal" ? "active" : ""}
+              onClick={() => setProfileSectionView("personal")}
+              type="button"
             >
-              <Save size={17} aria-hidden />
-              {profileSaving ? "Guardando" : "Guardar perfil"}
+              <User size={17} aria-hidden />
+              Datos personales
             </button>
-            {profileMessage && <p className="admin-message">{profileMessage}</p>}
-          </form>
-          {inventoryPanel}
-        </div>
+            <button
+              className={profileSectionView === "inventory" ? "active" : ""}
+              onClick={() => setProfileSectionView("inventory")}
+              type="button"
+            >
+              <Boxes size={17} aria-hidden />
+              Inventario
+            </button>
+          </nav>
+
+          {profileSectionView === "personal" ? (
+            <div className="profile-personal-layout">
+              <aside className="profile-account-summary">
+                <span className="db-status online">
+                  <User size={16} aria-hidden />
+                  {roleLabels[session.role]}
+                </span>
+                <strong>{session.username}</strong>
+                <small>
+                  Balance demo {formatUsd.format(session.balanceUsd ?? 0)}
+                </small>
+                <div
+                  className={`address-status ${
+                    session.hasShippingAddress ? "complete" : "incomplete"
+                  }`}
+                >
+                  {session.hasShippingAddress ? (
+                    <CircleCheck size={18} aria-hidden />
+                  ) : (
+                    <TriangleAlert size={18} aria-hidden />
+                  )}
+                  <span>
+                    <strong>
+                      {session.hasShippingAddress
+                        ? "Domicilio completo"
+                        : "Falta completar el domicilio"}
+                    </strong>
+                    <small>
+                      {session.hasShippingAddress
+                        ? "Ya podes solicitar retiros fisicos."
+                        : `Falta: ${(
+                            session.shippingAddressMissing ?? ["datos obligatorios"]
+                          ).join(", ")}.`}
+                    </small>
+                  </span>
+                </div>
+              </aside>
+
+              <form
+                className="profile-details-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void updateProfile();
+                }}
+              >
+                <section className="profile-form-section">
+                  <div className="profile-form-heading">
+                    <span className="eyebrow">Cuenta y contacto</span>
+                    <h2>Informacion personal</h2>
+                  </div>
+                  <div className="profile-form-grid">
+                    <label>
+                      Nombre visible
+                      <input
+                        onChange={(event) =>
+                          setProfileDisplayName(event.target.value)
+                        }
+                        value={profileDisplayName}
+                      />
+                    </label>
+                    <label>
+                      <span className="field-label">
+                        Nombre y apellido
+                        <span className="required-mark" aria-hidden>*</span>
+                      </span>
+                      <input
+                        autoComplete="name"
+                        onChange={(event) => setProfileFullName(event.target.value)}
+                        placeholder="Nombre del destinatario"
+                        required
+                        value={profileFullName}
+                      />
+                    </label>
+                    <label>
+                      Email
+                      <input
+                        autoComplete="email"
+                        onChange={(event) => setProfileEmail(event.target.value)}
+                        type="email"
+                        value={profileEmail}
+                      />
+                    </label>
+                    <label>
+                      Telefono
+                      <input
+                        autoComplete="tel"
+                        onChange={(event) => setProfilePhone(event.target.value)}
+                        placeholder="Ej: +54 11 5555 5555"
+                        type="tel"
+                        value={profilePhone}
+                      />
+                    </label>
+                  </div>
+                </section>
+
+                <section className="profile-form-section">
+                  <div className="profile-form-heading">
+                    <span className="eyebrow">Entrega</span>
+                    <h2>Domicilio</h2>
+                    <p>Usaremos esta direccion para enviar tus premios retirados.</p>
+                    <div className="shipping-country-notice">
+                      <Info size={17} aria-hidden />
+                      Por el momento realizamos envios unicamente dentro de Argentina.
+                    </div>
+                  </div>
+                  <div className="profile-form-grid address-grid">
+                    <label>
+                      <span className="field-label">
+                        Pais
+                        <span className="required-mark" aria-hidden>*</span>
+                      </span>
+                      <select
+                        autoComplete="country-name"
+                        onChange={(event) => setProfileCountry(event.target.value)}
+                        required
+                        value={profileCountry}
+                      >
+                        <option value="Argentina">Argentina</option>
+                        <option disabled value="proximamente">
+                          Otros paises proximamente
+                        </option>
+                      </select>
+                    </label>
+                    <label>
+                      <span className="field-label">
+                        Provincia
+                        <span className="required-mark" aria-hidden>*</span>
+                      </span>
+                      <select
+                        autoComplete="address-level1"
+                        onChange={(event) =>
+                          setProfileProvince(event.target.value)
+                        }
+                        required
+                        value={profileProvince}
+                      >
+                        <option value="">Seleccionar provincia</option>
+                        {argentinaProvinces.map((province) => (
+                          <option key={province} value={province}>
+                            {province}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span className="field-label">
+                        Ciudad
+                        <span className="required-mark" aria-hidden>*</span>
+                      </span>
+                      <input
+                        autoComplete="address-level2"
+                        onChange={(event) => setProfileCity(event.target.value)}
+                        required
+                        value={profileCity}
+                      />
+                    </label>
+                    <label>
+                      <span className="field-label">
+                        Calle
+                        <span className="required-mark" aria-hidden>*</span>
+                      </span>
+                      <input
+                        autoComplete="address-line1"
+                        onChange={(event) => setProfileStreet(event.target.value)}
+                        placeholder="Ej: Av. Corrientes"
+                        required
+                        value={profileStreet}
+                      />
+                    </label>
+                    <label>
+                      <span className="field-label">
+                        Numero
+                        <span className="required-mark" aria-hidden>*</span>
+                      </span>
+                      <input
+                        onChange={(event) =>
+                          setProfileStreetNumber(event.target.value)
+                        }
+                        placeholder="Ej: 1234"
+                        required
+                        value={profileStreetNumber}
+                      />
+                    </label>
+                    <label>
+                      Piso
+                      <input
+                        onChange={(event) => setProfileFloor(event.target.value)}
+                        placeholder="Ej: 4"
+                        value={profileFloor}
+                      />
+                    </label>
+                    <label>
+                      Departamento
+                      <input
+                        onChange={(event) =>
+                          setProfileApartment(event.target.value)
+                        }
+                        placeholder="Ej: B"
+                        value={profileApartment}
+                      />
+                    </label>
+                    <label>
+                      <span className="field-label">
+                        Codigo postal
+                        <span className="required-mark" aria-hidden>*</span>
+                      </span>
+                      <input
+                        autoComplete="postal-code"
+                        onChange={(event) =>
+                          setProfilePostalCode(event.target.value)
+                        }
+                        required
+                        value={profilePostalCode}
+                      />
+                    </label>
+                    <label className="wide-field">
+                      Referencia
+                      <input
+                        onChange={(event) =>
+                          setProfileAddressReference(event.target.value)
+                        }
+                        placeholder="Ej: Porton negro, timbre 2"
+                        value={profileAddressReference}
+                      />
+                    </label>
+                  </div>
+                </section>
+
+                <section className="profile-form-section security-section">
+                  <div className="profile-form-heading">
+                    <span className="eyebrow">Seguridad</span>
+                    <h2>Cambiar contraseña</h2>
+                  </div>
+                  <label>
+                    Nueva contraseña
+                    <input
+                      autoComplete="new-password"
+                      onChange={(event) => setProfilePassword(event.target.value)}
+                      placeholder="Dejar vacio para no cambiar"
+                      type="password"
+                      value={profilePassword}
+                    />
+                  </label>
+                </section>
+
+                <div className="profile-form-actions">
+                  {profileMessage && (
+                    <p className="admin-message">{profileMessage}</p>
+                  )}
+                  <button
+                    className="primary-action compact"
+                    disabled={profileSaving}
+                    type="submit"
+                  >
+                    <Save size={17} aria-hidden />
+                    {profileSaving ? "Guardando" : "Guardar datos"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          ) : (
+            <div className="profile-inventory-view">{inventoryPanel}</div>
+          )}
+        </>
       ) : (
         <div className="login-panel">
           <span className="eyebrow">Sesion requerida</span>
@@ -4033,6 +5867,21 @@ export function BoosterMarket({
               </Link>
             </div>
           )}
+          {!session && (
+            <div className="nav-cluster nav-auth">
+              <button
+                className="nav-login-button"
+                onClick={() => {
+                  setAuthMode("login");
+                  setHomeAuthOpen(true);
+                }}
+                type="button"
+              >
+                <LogIn size={16} aria-hidden />
+                Entrar
+              </button>
+            </div>
+          )}
           {(isSellerRole(session?.role) || session) && (
             <div className="nav-cluster nav-tools">
               {isSellerRole(session?.role) && (
@@ -4060,7 +5909,12 @@ export function BoosterMarket({
         </nav>
       </header>
 
-      <div className="page-transition" key={pageTransitionKey}>
+      <div
+        className={`page-transition ${
+          view === "cards" ? "cards-page-transition" : ""
+        }`}
+        key={pageTransitionKey}
+      >
         {view === "home" && (
           <>
             <section className="market-hero" aria-labelledby="main-title">
@@ -4182,7 +6036,6 @@ export function BoosterMarket({
       {homeAuthOpen && !session && (
         <div
           className="modal-backdrop"
-          onClick={() => setHomeAuthOpen(false)}
           onKeyDown={(event) => {
             if (event.key === "Escape") setHomeAuthOpen(false);
           }}
@@ -4192,7 +6045,6 @@ export function BoosterMarket({
             aria-label="Acceso a Pullario"
             aria-modal="true"
             className="utility-modal home-auth-modal"
-            onClick={(event) => event.stopPropagation()}
             role="dialog"
           >
             <button
@@ -4208,10 +6060,177 @@ export function BoosterMarket({
         </div>
       )}
 
+      {shippingModalOpen && (
+        <div
+          className="modal-backdrop"
+          onKeyDown={(event) => {
+            if (event.key === "Escape" && !shippingOrders) {
+              setShippingModalOpen(false);
+            }
+          }}
+          role="presentation"
+        >
+          <article
+            aria-labelledby="shipping-modal-title"
+            aria-modal="true"
+            className="utility-modal shipping-modal"
+            role="dialog"
+          >
+            <button
+              aria-label="Cerrar confirmacion de envio"
+              className="modal-close"
+              disabled={shippingOrders}
+              onClick={() => setShippingModalOpen(false)}
+              type="button"
+            >
+              <X size={18} aria-hidden />
+            </button>
+            <span className="eyebrow">Confirmar despacho</span>
+            <h2 id="shipping-modal-title">
+              {selectedShipmentIds.length}{" "}
+              {selectedShipmentIds.length === 1 ? "premio" : "premios"}
+            </h2>
+            <p>
+              El mismo numero de seguimiento se aplicara a todos los premios
+              seleccionados de este usuario.
+            </p>
+            <label>
+              Numero de seguimiento
+              <input
+                autoFocus
+                onChange={(event) =>
+                  setShipmentTrackingNumber(event.target.value)
+                }
+                placeholder="Ej: AR123456789"
+                type="text"
+                value={shipmentTrackingNumber}
+              />
+            </label>
+            <div className="shipping-modal-actions">
+              <button
+                className="secondary-action compact"
+                disabled={shippingOrders}
+                onClick={() => setShippingModalOpen(false)}
+                type="button"
+              >
+                Cancelar
+              </button>
+              <button
+                className="primary-action compact"
+                disabled={
+                  shippingOrders || shipmentTrackingNumber.trim().length < 3
+                }
+                onClick={() => void markSelectedOrdersShipped()}
+                type="button"
+              >
+                <Send size={16} aria-hidden />
+                {shippingOrders ? "Confirmando" : "Confirmar envio"}
+              </button>
+            </div>
+          </article>
+        </div>
+      )}
+
+      {stockEditor && (
+        <div
+          className="modal-backdrop"
+          onKeyDown={(event) => {
+            if (event.key === "Escape" && !stockEditSaving) {
+              setStockEditor(null);
+            }
+          }}
+          role="presentation"
+        >
+          <article
+            aria-labelledby="stock-edit-modal-title"
+            aria-modal="true"
+            className="utility-modal stock-edit-modal"
+            role="dialog"
+          >
+            <button
+              aria-label="Cerrar edicion de stock"
+              className="modal-close"
+              disabled={stockEditSaving}
+              onClick={() => setStockEditor(null)}
+              type="button"
+            >
+              <X size={18} aria-hidden />
+            </button>
+            <span className="eyebrow">Editar producto</span>
+            <div className="stock-edit-heading">
+              <img
+                alt=""
+                onError={handleImageError(
+                  stockEditor.card.game,
+                  itemTypeOf(stockEditor.card),
+                )}
+                src={
+                  stockEditImageUrl.trim()
+                    ? localImageUrl(stockEditImageUrl.trim())
+                    : cardImage({ ...stockEditor.card, imageUrl: undefined })
+                }
+              />
+              <div>
+                <h2 id="stock-edit-modal-title">{stockEditor.card.name}</h2>
+                <p>
+                  {gameLabels[stockEditor.card.game]} - Stock actual: {stockEditor.quantity}
+                </p>
+              </div>
+            </div>
+            <label>
+              Precio USD
+              <input
+                autoFocus
+                inputMode="decimal"
+                onChange={(event) => setStockEditPrice(event.target.value)}
+                placeholder="Ej: 12.50"
+                type="text"
+                value={stockEditPrice}
+              />
+            </label>
+            <label>
+              URL de la imagen
+              <input
+                onChange={(event) => setStockEditImageUrl(event.target.value)}
+                placeholder="https://..."
+                type="url"
+                value={stockEditImageUrl}
+              />
+            </label>
+            <p className="stock-edit-help">
+              Podes usar una imagen directa en formato JPG, PNG o WebP.
+            </p>
+            {stockEditError && (
+              <p className="search-error" role="alert">
+                {stockEditError}
+              </p>
+            )}
+            <div className="stock-edit-actions">
+              <button
+                className="secondary-action compact"
+                disabled={stockEditSaving}
+                onClick={() => setStockEditor(null)}
+                type="button"
+              >
+                Cancelar
+              </button>
+              <button
+                className="primary-action compact"
+                disabled={stockEditSaving || stockEditPrice.trim() === ""}
+                onClick={() => void saveStockDetails()}
+                type="button"
+              >
+                <Save size={16} aria-hidden />
+                {stockEditSaving ? "Guardando" : "Guardar cambios"}
+              </button>
+            </div>
+          </article>
+        </div>
+      )}
+
       {walletOpen && (
         <div
           className="modal-backdrop"
-          onClick={() => setWalletOpen(false)}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
               setWalletOpen(false);
@@ -4223,7 +6242,6 @@ export function BoosterMarket({
             aria-labelledby="wallet-modal-title"
             aria-modal="true"
             className="utility-modal"
-            onClick={(event) => event.stopPropagation()}
             role="dialog"
           >
             <button
@@ -4245,16 +6263,20 @@ export function BoosterMarket({
             <label>
               Monto USD
               <input
-                min="1"
-                onChange={(event) => setWalletAmount(Number(event.target.value))}
-                step="1"
-                type="number"
+                inputMode="decimal"
+                onChange={(event) => setWalletAmount(event.target.value)}
+                placeholder="Ej: 10"
+                type="text"
                 value={walletAmount}
               />
             </label>
             <button
               className="primary-action compact"
-              disabled={walletSaving}
+              disabled={
+                walletSaving ||
+                !Number.isFinite(Number(walletAmount)) ||
+                Number(walletAmount) <= 0
+              }
               onClick={() => void topUpWallet()}
               type="button"
             >
@@ -4269,7 +6291,6 @@ export function BoosterMarket({
       {wonCardsOpen && (
         <div
           className="modal-backdrop"
-          onClick={() => setWonCardsOpen(false)}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
               setWonCardsOpen(false);
@@ -4281,7 +6302,6 @@ export function BoosterMarket({
             aria-labelledby="won-cards-modal-title"
             aria-modal="true"
             className="utility-modal won-cards-modal"
-            onClick={(event) => event.stopPropagation()}
             role="dialog"
           >
             <button
@@ -4299,18 +6319,7 @@ export function BoosterMarket({
                   {formatUsd.format(ownedWonCardsValue)}
                 </h2>
               </div>
-              <button
-                className="secondary-action compact"
-                onClick={() => void loadWonCards()}
-                type="button"
-              >
-                <RotateCcw size={16} aria-hidden />
-                Refrescar
-              </button>
             </div>
-            {wonCardsMessage && (
-              <p className="admin-message">{wonCardsMessage}</p>
-            )}
             <div className="won-card-list">
               {ownedWonCards.length ? (
                 ownedWonCards.map((cardItem) => (
@@ -4330,16 +6339,18 @@ export function BoosterMarket({
                       />
                     </button>
                     <div>
-                      {cardItem.status === "waiting_stock" && (
-                        <span className="status-chip waiting_stock">
-                          {cardStatusLabels.waiting_stock}
-                        </span>
-                      )}
-                      <span
-                        className={`prize-type-chip ${itemTypeOf(cardItem.card)}`}
-                      >
+                      <div className="inventory-card-tags">
+                        {cardItem.status === "waiting_stock" && (
+                          <span className="status-chip waiting_stock">
+                            {cardStatusLabels.waiting_stock}
+                          </span>
+                        )}
+                        <span
+                          className={`prize-type-chip ${itemTypeOf(cardItem.card)}`}
+                        >
                           {prizeTypeLabels[itemTypeOf(cardItem.card)]}
-                      </span>
+                        </span>
+                      </div>
                       <strong>{cardItem.card.name}</strong>
                       <small>
                         {cardItem.packName} -{" "}
@@ -4354,6 +6365,7 @@ export function BoosterMarket({
                     </div>
                     <div className="won-card-actions">
                       <button
+                        className="sell-action"
                         disabled={wonCardBusyId === cardItem.id}
                         onClick={() => void sellWonCard(cardItem.id)}
                         type="button"
@@ -4361,10 +6373,20 @@ export function BoosterMarket({
                         Vender
                       </button>
                       <button
+                        className={
+                          cardItem.status === "waiting_stock"
+                            ? "retry-action"
+                            : "withdraw-action"
+                        }
                         disabled={wonCardBusyId === cardItem.id}
                         onClick={() => void withdrawWonCard(cardItem.id)}
                         type="button"
                       >
+                        {cardItem.status === "waiting_stock" ? (
+                          <RotateCcw size={16} aria-hidden />
+                        ) : (
+                          <Truck size={16} aria-hidden />
+                        )}
                         {cardItem.status === "waiting_stock"
                           ? "Reintentar retiro"
                           : "Retirar"}
@@ -4383,6 +6405,32 @@ export function BoosterMarket({
         </div>
       )}
 
+      {wonCardsMessage && (
+        <div
+          aria-live="polite"
+          className={`notice-toast ${wonCardsMessageTone}`}
+          role={wonCardsMessageTone === "error" ? "alert" : "status"}
+        >
+          {wonCardsMessageTone === "success" ? (
+            <CircleCheck size={20} aria-hidden />
+          ) : wonCardsMessageTone === "warning" ? (
+            <TriangleAlert size={20} aria-hidden />
+          ) : wonCardsMessageTone === "error" ? (
+            <CircleX size={20} aria-hidden />
+          ) : (
+            <Info size={20} aria-hidden />
+          )}
+          <span>{wonCardsMessage}</span>
+          <button
+            aria-label="Cerrar notificacion"
+            onClick={() => setWonCardsMessage("")}
+            type="button"
+          >
+            <X size={16} aria-hidden />
+          </button>
+        </div>
+      )}
+
       {selectedCard && (
         <CardModal
           card={selectedCard.card}
@@ -4394,21 +6442,92 @@ export function BoosterMarket({
   );
 }
 
+function SortControl({
+  ariaLabel,
+  onChange,
+  options,
+  value,
+}: {
+  ariaLabel: string;
+  onChange: (value: string) => void;
+  options: Array<{ label: string; value: string }>;
+  value: string;
+}) {
+  return (
+    <div className="sort-control">
+      <ArrowUpDown aria-hidden size={17} />
+      <span>Ordenar</span>
+      <div className="sort-select">
+        <select
+          aria-label={ariaLabel}
+          onChange={(event) => onChange(event.target.value)}
+          value={value}
+        >
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <ChevronDown aria-hidden size={16} />
+      </div>
+    </div>
+  );
+}
+
 function SearchConsole({
   actionLabel,
+  infinite = false,
   onCardAction,
+  onLoadMore,
   onSearch,
   search,
   setSearch,
 }: {
   actionLabel: string;
+  infinite?: boolean;
   onCardAction: (card: ExternalCard) => void;
+  onLoadMore?: () => void;
   onSearch: (override?: Partial<SearchState>) => void;
   search: SearchState;
   setSearch: React.Dispatch<React.SetStateAction<SearchState>>;
 }) {
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const sentinel = loadMoreRef.current;
+
+    if (
+      !infinite ||
+      !sentinel ||
+      !onLoadMore ||
+      !search.hasMore ||
+      search.loading ||
+      search.loadingMore
+    ) {
+      return;
+    }
+
+    const scrollContainer = sentinel.closest(".result-grid");
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          onLoadMore();
+        }
+      },
+      {
+        root: scrollContainer,
+        rootMargin: "220px 0px",
+        threshold: 0.01,
+      },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [infinite, onLoadMore, search.hasMore, search.loading, search.loadingMore]);
+
   return (
-    <div className="search-console">
+    <div className={`search-console ${infinite ? "infinite-search" : ""}`}>
       <div className="source-tabs" aria-label="Fuente de cartas">
         {cardGames.map((game) => (
           <button
@@ -4499,6 +6618,32 @@ function SearchConsole({
         </button>
       </div>
 
+      {infinite && (
+        <div className="search-results-toolbar">
+          <SortControl
+            ariaLabel="Ordenar resultados"
+            onChange={(value) => {
+              const sort = value as SearchState["sort"];
+              setSearch((current) => ({ ...current, sort }));
+
+              if (
+                search.query.trim().length >= 2 ||
+                search.setName.trim().length >= 2
+              ) {
+                onSearch({ sort });
+              }
+            }}
+            options={[
+              { value: "relevance", label: "Relevancia" },
+              { value: "price-asc", label: "Precio: menor a mayor" },
+              { value: "price-desc", label: "Precio: mayor a menor" },
+              { value: "number-desc", label: "Numero: mayor a menor" },
+            ]}
+            value={search.sort}
+          />
+        </div>
+      )}
+
       {search.error && <p className="search-error">{search.error}</p>}
 
       <div className="result-grid" aria-live="polite">
@@ -4570,6 +6715,20 @@ function SearchConsole({
               </button>
             </article>
           ))
+        )}
+        {infinite && !search.loading && search.results.length > 0 && (
+          <div className="infinite-search-status" ref={loadMoreRef}>
+            {search.loadingMore ? (
+              <>
+                <span className="mini-spinner" aria-hidden />
+                <strong>Cargando mas cartas</strong>
+              </>
+            ) : search.hasMore ? (
+              <span>Continua desplazandote para ver mas</span>
+            ) : (
+              <span>Llegaste al final de los resultados</span>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -4665,7 +6824,6 @@ function CardModal({
   return (
     <div
       className="modal-backdrop"
-      onClick={onClose}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           onClose();
@@ -4677,7 +6835,6 @@ function CardModal({
         aria-labelledby="card-modal-title"
         aria-modal="true"
         className="card-modal"
-        onClick={(event) => event.stopPropagation()}
         role="dialog"
       >
         <button
