@@ -8454,6 +8454,7 @@ a:has(> .material-icon) {
 
 .design-v3 .drop-row {
   grid-template-columns: 58px minmax(0, 1fr) max-content;
+  width: 100%;
 }
 
 .design-v3 .drop-row strong,
@@ -8472,7 +8473,7 @@ a:has(> .material-icon) {
   max-height: 4.56em;
 }
 
-@media (max-width: 520px) {
+@media (max-width: 760px) {
   .design-v3 .drop-row {
     align-items: start;
     grid-template-columns: 52px minmax(0, 1fr);
@@ -8486,5 +8487,6 @@ a:has(> .material-icon) {
   .design-v3 .drop-row b {
     grid-column: 2;
     justify-self: start;
+    margin-top: 2px;
   }
 }
