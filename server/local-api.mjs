@@ -409,6 +409,9 @@ async function migrateExistingTables(connectionPool) {
   await connectionPool.execute(
     "UPDATE booster_packs SET shop_slug = 'pullario', shop_name = 'Pullario' WHERE created_by = 'admin' AND (shop_slug IS NULL OR shop_slug = 'hitshelf')",
   );
+  await connectionPool.query(
+    "UPDATE users SET country = 'Argentina' WHERE country IS NULL OR TRIM(country) = ''",
+  );
 }
 
 async function seedAdmin(connectionPool) {
@@ -1840,9 +1843,9 @@ async function openPackForUser(packId, session) {
 }
 
 function shippingAddressMissingFields(row) {
+  const country = asTrimmedString(row?.country) || "Argentina";
   const requiredFields = [
     ["full_name", "nombre y apellido"],
-    ["country", "pais"],
     ["province", "provincia"],
     ["city", "ciudad"],
     ["street", "calle"],
@@ -1854,8 +1857,7 @@ function shippingAddressMissingFields(row) {
     .map(([, label]) => label);
 
   if (
-    asTrimmedString(row?.country) &&
-    asTrimmedString(row.country).toLocaleLowerCase("es") !== "argentina"
+    country.toLocaleLowerCase("es") !== "argentina"
   ) {
     missing.push("pais habilitado para envios (Argentina)");
   }
@@ -1884,7 +1886,7 @@ function publicUser(row) {
     city: row.city ?? "",
     province: row.province ?? "",
     postalCode: row.postal_code ?? "",
-    country: row.country ?? "",
+    country: asTrimmedString(row.country) || "Argentina",
     hasShippingAddress: shippingAddressMissing.length === 0,
     shippingAddressMissing,
     balanceUsd: Number(row.balance_usd ?? 0),
@@ -2036,7 +2038,7 @@ async function updateMe(session, body) {
   const city = asTrimmedString(body.city).slice(0, 120) || null;
   const province = asTrimmedString(body.province).slice(0, 120) || null;
   const postalCode = asTrimmedString(body.postalCode).slice(0, 30) || null;
-  const country = asTrimmedString(body.country).slice(0, 80) || null;
+  const country = asTrimmedString(body.country).slice(0, 80) || "Argentina";
   const password = typeof body.password === "string" ? body.password : "";
   const shopName = session.role === "admin" ? "Pullario" : "";
   const connectionPool = await getPool();

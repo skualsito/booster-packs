@@ -1370,7 +1370,7 @@ export function BoosterMarket({
     setProfileCity(storedSession.city ?? "");
     setProfileProvince(storedSession.province ?? "");
     setProfilePostalCode(storedSession.postalCode ?? "");
-    setProfileCountry(storedSession.country ?? "Argentina");
+    setProfileCountry(storedSession.country?.trim() || "Argentina");
 
     void fetch(localApiUrl("/api/me"), {
       headers: { Authorization: `Bearer ${storedSession.token}` },
@@ -1411,7 +1411,7 @@ export function BoosterMarket({
         setProfileCity(refreshedSession.city ?? "");
         setProfileProvince(refreshedSession.province ?? "");
         setProfilePostalCode(refreshedSession.postalCode ?? "");
-        setProfileCountry(refreshedSession.country ?? "Argentina");
+        setProfileCountry(refreshedSession.country?.trim() || "Argentina");
       })
       .catch(() => undefined);
   }, []);
@@ -2584,7 +2584,7 @@ export function BoosterMarket({
     setProfileCity(nextSession.city ?? "");
     setProfileProvince(nextSession.province ?? "");
     setProfilePostalCode(nextSession.postalCode ?? "");
-    setProfileCountry(nextSession.country ?? "Argentina");
+    setProfileCountry(nextSession.country?.trim() || "Argentina");
   };
 
   const updateSessionUser = (user?: LoginResponse["user"]) => {
@@ -3566,7 +3566,7 @@ export function BoosterMarket({
           city: profileCity,
           province: profileProvince,
           postalCode: profilePostalCode,
-          country: profileCountry,
+          country: profileCountry.trim() || "Argentina",
           password: profilePassword,
         }),
       });
