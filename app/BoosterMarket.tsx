@@ -1235,6 +1235,8 @@ export function BoosterMarket({
   const [celebratingRunId, setCelebratingRunId] = useState<number | null>(null);
   const spinTimers = useRef<number[]>([]);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const rouletteTrackRef = useRef<HTMLDivElement | null>(null);
+  const rouletteTickFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!wonCardsMessage) {
@@ -1756,6 +1758,9 @@ export function BoosterMarket({
   useEffect(() => {
     return () => {
       spinTimers.current.forEach((timer) => window.clearTimeout(timer));
+      if (rouletteTickFrameRef.current !== null) {
+        window.cancelAnimationFrame(rouletteTickFrameRef.current);
+      }
       if (audioContextRef.current) {
         void audioContextRef.current.close();
       }
@@ -3060,6 +3065,10 @@ export function BoosterMarket({
   const spinWithWinner = (winner: PackItem, onDone?: () => void) => {
     spinTimers.current.forEach((timer) => window.clearTimeout(timer));
     spinTimers.current = [];
+    if (rouletteTickFrameRef.current !== null) {
+      window.cancelAnimationFrame(rouletteTickFrameRef.current);
+      rouletteTickFrameRef.current = null;
+    }
     setCelebratingRunId(null);
 
     const targetIndex = 32;
@@ -3106,16 +3115,6 @@ export function BoosterMarket({
       result: undefined,
     });
 
-    const tickTimers: number[] = [];
-    let tickDelay = 45;
-    for (let tick = 0; tick < 30; tick += 1) {
-      const progress = tick / 29;
-      tickDelay += 46 + Math.pow(progress, 2) * 180;
-      tickTimers.push(
-        window.setTimeout(() => playRouletteTick(progress), tickDelay),
-      );
-    }
-
     const spinTimer = window.setTimeout(() => {
       setRoulette((current) =>
         current.runId === runId
@@ -3125,9 +3124,14 @@ export function BoosterMarket({
             }
           : current,
       );
+      startRouletteTickTracking(runId, targetIndex);
     }, 40);
 
     const resultTimer = window.setTimeout(() => {
+      if (rouletteTickFrameRef.current !== null) {
+        window.cancelAnimationFrame(rouletteTickFrameRef.current);
+        rouletteTickFrameRef.current = null;
+      }
       setRoulette((current) =>
         current.runId === runId
           ? {
@@ -3149,38 +3153,85 @@ export function BoosterMarket({
       onDone?.();
     }, 3800);
 
-    spinTimers.current = [spinTimer, resultTimer, ...tickTimers];
+    spinTimers.current = [spinTimer, resultTimer];
   };
 
-  const prepareRouletteAudio = () => {
+  const prepareRouletteAudio = async () => {
     try {
       if (!audioContextRef.current) {
         audioContextRef.current = new AudioContext();
       }
       if (audioContextRef.current.state === "suspended") {
-        void audioContextRef.current.resume();
+        await audioContextRef.current.resume();
       }
     } catch {
       audioContextRef.current = null;
     }
   };
 
-  const playRouletteTick = (progress: number) => {
+  const playRouletteTick = (progress: number, delaySeconds = 0) => {
     const context = audioContextRef.current;
     if (!context || context.state !== "running") return;
 
     const oscillator = context.createOscillator();
     const gain = context.createGain();
-    const now = context.currentTime;
-    oscillator.type = "triangle";
-    oscillator.frequency.setValueAtTime(480 + progress * 170, now);
+    const now = context.currentTime + delaySeconds;
+    oscillator.type = "square";
+    oscillator.frequency.setValueAtTime(720 - progress * 210, now);
+    oscillator.frequency.exponentialRampToValueAtTime(360, now + 0.028);
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.028, now + 0.004);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.045);
+    gain.gain.exponentialRampToValueAtTime(0.018 + progress * 0.008, now + 0.002);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.032);
     oscillator.connect(gain);
     gain.connect(context.destination);
     oscillator.start(now);
-    oscillator.stop(now + 0.05);
+    oscillator.stop(now + 0.036);
+  };
+
+  const startRouletteTickTracking = (runId: number, targetIndex: number) => {
+    let lastBoundary = 0;
+
+    const readTranslateX = (element: HTMLElement) => {
+      const transform = window.getComputedStyle(element).transform;
+      if (!transform || transform === "none") return 0;
+
+      const match = transform.match(/^matrix(3d)?\((.+)\)$/);
+      if (!match) return 0;
+
+      const values = match[2].split(",").map(Number);
+      return match[1] ? values[12] ?? 0 : values[4] ?? 0;
+    };
+
+    const sampleTrack = () => {
+      const track = rouletteTrackRef.current;
+      if (!track || track.dataset.rouletteRun !== String(runId)) {
+        rouletteTickFrameRef.current = window.requestAnimationFrame(sampleTrack);
+        return;
+      }
+
+      const distance = Math.abs(readTranslateX(track));
+      const crossedBoundary = Math.min(
+        targetIndex,
+        Math.floor((distance + 0.5) / ROULETTE_STRIDE),
+      );
+
+      if (crossedBoundary > lastBoundary) {
+        const crossedThisFrame = crossedBoundary - lastBoundary;
+        const progress = Math.min(1, distance / (targetIndex * ROULETTE_STRIDE));
+        for (let index = 0; index < crossedThisFrame; index += 1) {
+          playRouletteTick(progress, index * 0.005);
+        }
+        lastBoundary = crossedBoundary;
+      }
+
+      if (lastBoundary < targetIndex) {
+        rouletteTickFrameRef.current = window.requestAnimationFrame(sampleTrack);
+      } else {
+        rouletteTickFrameRef.current = null;
+      }
+    };
+
+    rouletteTickFrameRef.current = window.requestAnimationFrame(sampleTrack);
   };
 
   const playHitFanfare = () => {
@@ -3223,7 +3274,7 @@ export function BoosterMarket({
 
     setOpeningPack(true);
     setAuthMessage("");
-    prepareRouletteAudio();
+    await prepareRouletteAudio();
 
     try {
       if (selectedPack.createdBy === "demo") {
@@ -3552,7 +3603,9 @@ export function BoosterMarket({
             {visibleRouletteItems.length ? (
               <div
                 className="roulette-track"
+                data-roulette-run={visibleRouletteRunId}
                 key={visibleRouletteRunId}
+                ref={rouletteTrackRef}
                 style={
                   {
                     transform: `translateX(-${visibleRouletteOffset}px)`,
