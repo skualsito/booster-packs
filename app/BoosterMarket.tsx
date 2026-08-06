@@ -5666,6 +5666,37 @@ export function BoosterMarket({
                 </div>
                 <small>{upgraderStakeCards.length}/20 elegidos</small>
               </div>
+              <div className={`upgrader-selection-card${upgraderStakeCards.length ? " filled" : ""}`}>
+                <div className="upgrader-selection-images" aria-hidden>
+                  {upgraderStakeCards.length ? (
+                    upgraderStakeCards.slice(0, 3).map((item) => (
+                      <img
+                        src={cardImage(item.card)}
+                        alt=""
+                        key={item.id}
+                        onError={handleImageError(item.card.game)}
+                      />
+                    ))
+                  ) : (
+                    <Trophy size={28} />
+                  )}
+                </div>
+                <div className="upgrader-selection-copy">
+                  <small>Premios seleccionados</small>
+                  <strong>
+                    {upgraderStakeCards.length
+                      ? upgraderStakeCards.length === 1
+                        ? upgraderStakeCards[0].card.name
+                        : `${upgraderStakeCards.length} premios en tu apuesta`
+                      : "Elegí qué querés apostar"}
+                  </strong>
+                  <span>
+                    {upgraderStakeCards.length
+                      ? formatUsd.format(upgraderStakeValue)
+                      : "Tu selección aparecerá acá"}
+                  </span>
+                </div>
+              </div>
               <div className="upgrader-item-list">
                 {ownedWonCards.length ? (
                   ownedWonCards.map((item) => {
@@ -5780,6 +5811,30 @@ export function BoosterMarket({
                   <strong>{formatUsd.format(upgraderTargetValue)}</strong>
                 </div>
                 <small>{filteredUpgraderTargets.length} disponibles</small>
+              </div>
+              <div className={`upgrader-selection-card${upgraderTarget ? " filled" : ""}`}>
+                <div className="upgrader-selection-images single" aria-hidden>
+                  {upgraderTarget ? (
+                    <img
+                      src={cardImage(upgraderTarget.card)}
+                      alt=""
+                      onError={handleImageError(upgraderTarget.card.game)}
+                    />
+                  ) : (
+                    <Sparkles size={28} />
+                  )}
+                </div>
+                <div className="upgrader-selection-copy">
+                  <small>Premio que podés ganar</small>
+                  <strong>
+                    {upgraderTarget?.card.name ?? "Elegí un premio objetivo"}
+                  </strong>
+                  <span>
+                    {upgraderTarget
+                      ? formatUsd.format(upgraderTargetValue)
+                      : "Tu objetivo aparecerá acá"}
+                  </span>
+                </div>
               </div>
               <div className="upgrader-target-tools">
                 <div className="stock-type-tabs" aria-label="Filtrar objetivos por juego">
