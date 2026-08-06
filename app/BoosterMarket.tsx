@@ -130,7 +130,7 @@ type UserCardItem = {
   packName: string;
   card: ExternalCard;
   valueUsd: number;
-  status: "owned" | "waiting_stock" | "sold" | "withdrawn";
+  status: "owned" | "waiting_stock" | "sold" | "withdrawn" | "upgraded";
   shipmentStatus?: "pending" | "shipped" | "delivered";
   trackingNumber?: string;
   shippedAt?: string;
@@ -143,6 +143,25 @@ type UserCardsResponse = {
   totalValueUsd?: number;
   ownedValueUsd?: number;
   lifetimeValueUsd?: number;
+  error?: string;
+};
+
+type UpgraderOptionsResponse = {
+  inventory?: UserCardItem[];
+  targets?: ShopStockItem[];
+  rtp?: number;
+  maxChance?: number;
+  error?: string;
+};
+
+type UpgraderPlayResponse = {
+  runId?: string;
+  won?: boolean;
+  chance?: number;
+  roll?: number;
+  stakeValueUsd?: number;
+  target?: ShopStockItem;
+  awardedUserCardId?: number | null;
   error?: string;
 };
 
@@ -306,7 +325,8 @@ type AppView =
   | "admin-shipments"
   | "admin-users"
   | "profile"
-  | "cards";
+  | "cards"
+  | "upgrader";
 
 type RouletteCard = PackItem & {
   spinKey: string;
@@ -438,6 +458,7 @@ const cardStatusLabels: Record<UserCardItem["status"], string> = {
   waiting_stock: "Esperando stock",
   sold: "Vendida",
   withdrawn: "Retirada",
+  upgraded: "Usada en Upgrader",
 };
 
 const orderStatusLabels: Record<UserCardItem["status"], string> = {
@@ -445,6 +466,7 @@ const orderStatusLabels: Record<UserCardItem["status"], string> = {
   waiting_stock: "Esperando stock",
   sold: "Vendida",
   withdrawn: "Retiro confirmado",
+  upgraded: "Usada en Upgrader",
 };
 
 const isSellerRole = (role?: UserRole) => role === "admin";
@@ -1142,6 +1164,17 @@ export function BoosterMarket({
     "info" | "success" | "warning" | "error"
   >("info");
   const [wonCardBusyId, setWonCardBusyId] = useState<number | null>(null);
+  const [upgraderTargets, setUpgraderTargets] = useState<ShopStockItem[]>([]);
+  const [upgraderStakeIds, setUpgraderStakeIds] = useState<number[]>([]);
+  const [upgraderTargetId, setUpgraderTargetId] = useState<number | null>(null);
+  const [upgraderQuery, setUpgraderQuery] = useState("");
+  const [upgraderGame, setUpgraderGame] = useState<PackGame>("mixed");
+  const [upgraderLoading, setUpgraderLoading] = useState(false);
+  const [upgraderPlaying, setUpgraderPlaying] = useState(false);
+  const [upgraderRotation, setUpgraderRotation] = useState(0);
+  const [upgraderOutcome, setUpgraderOutcome] =
+    useState<UpgraderPlayResponse | null>(null);
+  const upgraderTimerRef = useRef<number | null>(null);
   const [inventoryActiveOnly, setInventoryActiveOnly] = useState(false);
   const [inventoryPriceSort, setInventoryPriceSort] = useState<
     "price-desc" | "price-asc"
@@ -1365,6 +1398,40 @@ export function BoosterMarket({
         error instanceof Error ? error.message : "No se pudo leer tus cartas.",
       );
       return [];
+    }
+  }, [session]);
+
+  const loadUpgraderOptions = useCallback(async () => {
+    if (!session) {
+      setUpgraderTargets([]);
+      return;
+    }
+
+    setUpgraderLoading(true);
+    try {
+      const response = await fetch(localApiUrl("/api/upgrader"), {
+        headers: { Authorization: `Bearer ${session.token}` },
+      });
+      const payload = (await response.json()) as UpgraderOptionsResponse;
+
+      if (!response.ok || payload.error) {
+        throw new Error(payload.error ?? "No se pudo cargar el Upgrader.");
+      }
+
+      setWonCards((current) => {
+        const history = current.filter(
+          (item) => item.status !== "owned" && item.status !== "waiting_stock",
+        );
+        return [...(payload.inventory ?? []), ...history];
+      });
+      setUpgraderTargets(payload.targets ?? []);
+    } catch (error) {
+      setWonCardsMessageTone("error");
+      setWonCardsMessage(
+        error instanceof Error ? error.message : "No se pudo cargar el Upgrader.",
+      );
+    } finally {
+      setUpgraderLoading(false);
     }
   }, [session]);
 
@@ -1702,6 +1769,27 @@ export function BoosterMarket({
   }, [loadWonCards, session]);
 
   useEffect(() => {
+    if (!session || view !== "upgrader") {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void loadUpgraderOptions();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [loadUpgraderOptions, session, view]);
+
+  useEffect(
+    () => () => {
+      if (upgraderTimerRef.current !== null) {
+        window.clearTimeout(upgraderTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
     if (!isSellerRole(session?.role)) {
       return;
     }
@@ -1850,6 +1938,46 @@ export function BoosterMarket({
     (total, item) => total + Math.max(0, item.valueUsd),
     0,
   );
+  const upgraderStakeCards = ownedWonCards.filter((item) =>
+    upgraderStakeIds.includes(item.id),
+  );
+  const upgraderStakeValue = Number(
+    upgraderStakeCards
+      .reduce((total, item) => total + Math.max(0, item.valueUsd), 0)
+      .toFixed(2),
+  );
+  const upgraderTarget =
+    upgraderTargets.find((item) => item.id === upgraderTargetId) ?? null;
+  const upgraderTargetValue = Number(upgraderTarget?.card.priceUsd ?? 0);
+  const upgraderChance =
+    upgraderStakeValue > 0 && upgraderTargetValue > upgraderStakeValue
+      ? Math.min(
+          90,
+          (upgraderStakeValue / upgraderTargetValue) * 100 * 0.9,
+        )
+      : 0;
+  const upgraderMultiplier =
+    upgraderStakeValue > 0 && upgraderTargetValue > 0
+      ? upgraderTargetValue / upgraderStakeValue
+      : 0;
+  const filteredUpgraderTargets = upgraderTargets.filter((item) => {
+    const price = Number(item.card.priceUsd ?? 0);
+    const repeatsStake = upgraderStakeCards.some(
+      (stake) =>
+        stake.card.id === item.card.id &&
+        stake.card.game === item.card.game &&
+        itemTypeOf(stake.card) === itemTypeOf(item.card),
+    );
+    const gameMatches =
+      upgraderGame === "mixed" || item.card.game === upgraderGame;
+    const query = upgraderQuery.trim().toLocaleLowerCase("es");
+    const queryMatches =
+      !query ||
+      item.card.name.toLocaleLowerCase("es").includes(query) ||
+      item.card.setName.toLocaleLowerCase("es").includes(query);
+
+    return !repeatsStake && price > upgraderStakeValue && gameMatches && queryMatches;
+  });
   const visibleInventoryCards = wonCards
     .filter(
       (item) =>
@@ -2764,6 +2892,101 @@ export function BoosterMarket({
       );
     } finally {
       setWalletSaving(false);
+    }
+  };
+
+  const toggleUpgraderStake = (cardId: number) => {
+    if (upgraderPlaying) {
+      return;
+    }
+
+    setUpgraderOutcome(null);
+    setUpgraderStakeIds((current) => {
+      if (current.includes(cardId)) {
+        return current.filter((id) => id !== cardId);
+      }
+
+      if (current.length >= 20) {
+        setWonCardsMessageTone("warning");
+        setWonCardsMessage("Podés apostar hasta 20 premios juntos.");
+        return current;
+      }
+
+      return [...current, cardId];
+    });
+  };
+
+  const playUpgrader = async () => {
+    if (!session) {
+      setHomeAuthOpen(true);
+      return;
+    }
+
+    if (!upgraderStakeIds.length || !upgraderTarget) {
+      setWonCardsMessageTone("warning");
+      setWonCardsMessage("Elegí tus premios y un objetivo antes de jugar.");
+      return;
+    }
+
+    setUpgraderPlaying(true);
+    setUpgraderOutcome(null);
+    setWonCardsMessage("");
+
+    try {
+      const response = await fetch(localApiUrl("/api/upgrader/play"), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          stakeCardIds: upgraderStakeIds,
+          targetStockId: upgraderTarget.id,
+        }),
+      });
+      const payload = (await response.json()) as UpgraderPlayResponse;
+
+      if (
+        !response.ok ||
+        payload.error ||
+        typeof payload.won !== "boolean" ||
+        typeof payload.roll !== "number"
+      ) {
+        throw new Error(payload.error ?? "No se pudo completar el Upgrader.");
+      }
+
+      const targetAngle = payload.roll * 3.6;
+      setUpgraderRotation((current) => {
+        const currentAngle = ((current % 360) + 360) % 360;
+        const finalTurn = (targetAngle - currentAngle + 360) % 360;
+        return current + 1440 + finalTurn;
+      });
+
+      upgraderTimerRef.current = window.setTimeout(() => {
+        setUpgraderOutcome(payload);
+        setUpgraderPlaying(false);
+        setUpgraderStakeIds([]);
+        setUpgraderTargetId(null);
+        setWonCardsMessageTone(payload.won ? "success" : "warning");
+        setWonCardsMessage(
+          payload.won
+            ? "¡Upgrade conseguido! El premio ya está en tu inventario."
+            : "El upgrade no salió esta vez.",
+        );
+        void loadWonCards();
+        void loadUpgraderOptions();
+        upgraderTimerRef.current = null;
+      }, 4200);
+    } catch (error) {
+      setUpgraderPlaying(false);
+      setWonCardsMessageTone("error");
+      setWonCardsMessage(
+        error instanceof Error
+          ? error.message
+          : "No se pudo completar el Upgrader.",
+      );
+      void loadWonCards();
+      void loadUpgraderOptions();
     }
   };
 
@@ -3844,6 +4067,7 @@ export function BoosterMarket({
         <nav aria-label="Navegacion del pie">
           <strong>Explorar</strong>
           <Link href="/">Cajas</Link>
+          <Link href="/upgrader">Upgrader</Link>
           <Link href="/cards">Cartas</Link>
           <Link href="#como-funciona">Indice</Link>
           <Link href="#confianza">Confianza</Link>
@@ -5333,6 +5557,260 @@ export function BoosterMarket({
               ? adminUsersSection
           : adminDashboardSection;
 
+  const upgraderSection = (
+    <section className="upgrader-page page-section" aria-labelledby="upgrader-title">
+      <div className="upgrader-heading">
+        <span className="eyebrow">Upgrader</span>
+        <h1 id="upgrader-title">Convertí tus premios en uno mejor</h1>
+        <p>
+          Elegí premios de tu inventario y apostalos por un objetivo de mayor
+          valor. Si la rueda cae en la zona violeta, ganás el upgrade.
+        </p>
+      </div>
+
+      {session ? (
+        <>
+          <div className="upgrader-layout">
+            <section className="upgrader-panel upgrader-stake-panel">
+              <div className="upgrader-panel-heading">
+                <div>
+                  <span>Tu apuesta</span>
+                  <strong>{formatUsd.format(upgraderStakeValue)}</strong>
+                </div>
+                <small>{upgraderStakeCards.length}/20 elegidos</small>
+              </div>
+              <div className="upgrader-item-list">
+                {ownedWonCards.length ? (
+                  ownedWonCards.map((item) => {
+                    const selected = upgraderStakeIds.includes(item.id);
+                    return (
+                      <button
+                        aria-pressed={selected}
+                        className={`upgrader-item${selected ? " selected" : ""}`}
+                        disabled={upgraderPlaying}
+                        key={item.id}
+                        onClick={() => toggleUpgraderStake(item.id)}
+                        type="button"
+                      >
+                        <img
+                          src={cardImage(item.card)}
+                          alt=""
+                          onError={handleImageError(item.card.game)}
+                        />
+                        <span>
+                          <strong>{item.card.name}</strong>
+                          <small>{item.card.setName}</small>
+                        </span>
+                        <b>{formatUsd.format(item.valueUsd)}</b>
+                        <CircleCheck size={19} aria-hidden />
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="upgrader-empty">
+                    <Trophy size={28} aria-hidden />
+                    <strong>No tenés premios activos</strong>
+                    <p>Abrí una caja para conseguir tu primer premio.</p>
+                    <Link href="/">Ver cajas</Link>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section className="upgrader-center" aria-label="Ruleta Upgrader">
+              <div
+                className={`upgrader-wheel${upgraderPlaying ? " spinning" : ""}`}
+                style={
+                  { "--upgrade-chance": `${upgraderChance}%` } as CSSProperties
+                }
+              >
+                <div className="upgrader-wheel-scale" aria-hidden />
+                <div
+                  className="upgrader-needle"
+                  style={{ transform: `rotate(${upgraderRotation}deg)` }}
+                  aria-hidden
+                >
+                  <i />
+                </div>
+                <div className="upgrader-wheel-core">
+                  <ArrowUpDown size={35} aria-hidden />
+                  <strong>{formatPercent.format(upgraderChance)}%</strong>
+                  <small>probabilidad</small>
+                </div>
+              </div>
+
+              <div className="upgrader-values">
+                <div>
+                  <small>Apostás</small>
+                  <strong>{formatUsd.format(upgraderStakeValue)}</strong>
+                </div>
+                <ArrowRight size={20} aria-hidden />
+                <div>
+                  <small>Podés ganar</small>
+                  <strong>{formatUsd.format(upgraderTargetValue)}</strong>
+                </div>
+              </div>
+              <div className="upgrader-multiplier">
+                <span>{upgraderMultiplier ? `${upgraderMultiplier.toFixed(2)}x` : "0.00x"}</span>
+                <small>Retorno teórico 90%</small>
+              </div>
+              <button
+                className="primary-action upgrader-play"
+                disabled={
+                  upgraderPlaying ||
+                  !upgraderStakeIds.length ||
+                  !upgraderTarget ||
+                  upgraderChance <= 0
+                }
+                onClick={() => void playUpgrader()}
+                type="button"
+              >
+                <Sparkles size={19} aria-hidden />
+                {upgraderPlaying ? "Girando..." : "Intentar upgrade"}
+              </button>
+              <p className="upgrader-risk">
+                Si no acertás, los premios apostados dejan de estar disponibles.
+              </p>
+            </section>
+
+            <section className="upgrader-panel upgrader-target-panel">
+              <div className="upgrader-panel-heading">
+                <div>
+                  <span>Premio objetivo</span>
+                  <strong>{formatUsd.format(upgraderTargetValue)}</strong>
+                </div>
+                <small>{filteredUpgraderTargets.length} disponibles</small>
+              </div>
+              <div className="upgrader-target-tools">
+                <div className="stock-type-tabs" aria-label="Filtrar objetivos por juego">
+                  <button
+                    className={upgraderGame === "mixed" ? "active" : ""}
+                    onClick={() => setUpgraderGame("mixed")}
+                    type="button"
+                  >
+                    Todos
+                  </button>
+                  {cardGames.map((game) => (
+                    <button
+                      className={upgraderGame === game ? "active" : ""}
+                      key={game}
+                      onClick={() => setUpgraderGame(game)}
+                      type="button"
+                    >
+                      {gameLabels[game]}
+                    </button>
+                  ))}
+                </div>
+                <label className="upgrader-search">
+                  <Search size={17} aria-hidden />
+                  <input
+                    onChange={(event) => setUpgraderQuery(event.target.value)}
+                    placeholder="Buscar premio"
+                    value={upgraderQuery}
+                  />
+                </label>
+              </div>
+              <div className="upgrader-item-list">
+                {upgraderLoading ? (
+                  <div className="upgrader-empty" role="status">
+                    <span className="mini-spinner" aria-hidden />
+                    <strong>Cargando premios</strong>
+                  </div>
+                ) : filteredUpgraderTargets.length ? (
+                  filteredUpgraderTargets.map((item) => {
+                    const selected = item.id === upgraderTargetId;
+                    return (
+                      <button
+                        aria-pressed={selected}
+                        className={`upgrader-item${selected ? " selected" : ""}`}
+                        disabled={upgraderPlaying}
+                        key={item.id}
+                        onClick={() => {
+                          setUpgraderOutcome(null);
+                          setUpgraderTargetId(item.id);
+                        }}
+                        type="button"
+                      >
+                        <img
+                          src={cardImage(item.card)}
+                          alt=""
+                          onError={handleImageError(item.card.game)}
+                        />
+                        <span>
+                          <strong>{item.card.name}</strong>
+                          <small>{item.card.setName}</small>
+                        </span>
+                        <b>{formatUsd.format(item.card.priceUsd ?? 0)}</b>
+                        <CircleCheck size={19} aria-hidden />
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="upgrader-empty">
+                    <Search size={27} aria-hidden />
+                    <strong>No hay objetivos para ese filtro</strong>
+                    <p>Elegí una apuesta menor o cambiá la búsqueda.</p>
+                  </div>
+                )}
+              </div>
+            </section>
+          </div>
+
+          {upgraderOutcome && (
+            <article
+              className={`upgrader-outcome ${upgraderOutcome.won ? "won" : "lost"}`}
+              role="status"
+            >
+              {upgraderOutcome.target?.card && (
+                <img
+                  src={cardImage(upgraderOutcome.target.card)}
+                  alt=""
+                  onError={handleImageError(upgraderOutcome.target.card.game)}
+                />
+              )}
+              <div>
+                <span>{upgraderOutcome.won ? "Upgrade conseguido" : "No salió"}</span>
+                <h2>
+                  {upgraderOutcome.won
+                    ? upgraderOutcome.target?.card.name
+                    : "La rueda quedó fuera de la zona ganadora"}
+                </h2>
+                <p>
+                  Probabilidad {formatPercent.format(upgraderOutcome.chance ?? 0)}%
+                  {upgraderOutcome.won
+                    ? " · El premio ya está en tu inventario."
+                    : " · Podés volver a intentarlo con otros premios."}
+                </p>
+              </div>
+              {upgraderOutcome.won && (
+                <Link className="secondary-action compact" href="/profile">
+                  <Trophy size={17} aria-hidden />
+                  Ver inventario
+                </Link>
+              )}
+            </article>
+          )}
+        </>
+      ) : (
+        <div className="login-panel upgrader-login">
+          <span className="eyebrow">Sesión requerida</span>
+          <h3>Entrá para usar tus premios en el Upgrader</h3>
+          <button
+            className="primary-action compact"
+            onClick={() => {
+              setAuthMode("login");
+              setHomeAuthOpen(true);
+            }}
+            type="button"
+          >
+            <LogIn size={17} aria-hidden />
+            Entrar
+          </button>
+        </div>
+      )}
+    </section>
+  );
+
   const inventoryPanel = (
     <section className="inventory-panel" aria-label="Inventario de premios">
       <div className="panel-heading">
@@ -5897,6 +6375,13 @@ export function BoosterMarket({
               <Home size={16} aria-hidden />
               Cajas
             </Link>
+            <Link
+              className={view === "upgrader" ? "active" : ""}
+              href="/upgrader"
+            >
+              <ArrowUpDown size={16} aria-hidden />
+              Upgrader
+            </Link>
             <Link className={view === "cards" ? "active" : ""} href="/cards">
               <Search size={16} aria-hidden />
               Cartas
@@ -6107,6 +6592,7 @@ export function BoosterMarket({
             missingPackSection
           ))}
         {view === "cards" && searchSection}
+        {view === "upgrader" && upgraderSection}
         {view.startsWith("admin") && adminSection}
         {view === "profile" && profileSection}
         {siteFooter}

@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import {
   pbkdf2Sync,
   randomBytes,
+  randomInt,
   randomUUID,
   timingSafeEqual,
 } from "node:crypto";
@@ -202,7 +203,8 @@ async function migrate(connectionPool) {
       card_json JSON NOT NULL,
       value_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
       paid_price_usd DECIMAL(10,2) NULL,
-      status ENUM('owned', 'waiting_stock', 'sold', 'withdrawn') NOT NULL DEFAULT 'owned',
+      source_shop_id INT NULL,
+      status ENUM('owned', 'waiting_stock', 'sold', 'withdrawn', 'upgraded') NOT NULL DEFAULT 'owned',
       shipment_status ENUM('pending', 'shipped', 'delivered') NULL DEFAULT NULL,
       tracking_number VARCHAR(160) NULL,
       shipped_at DATETIME NULL,
@@ -215,11 +217,12 @@ async function migrate(connectionPool) {
   `);
 
   await connectionPool.query(
-    "ALTER TABLE user_cards MODIFY status ENUM('owned', 'waiting_stock', 'sold', 'withdrawn') NOT NULL DEFAULT 'owned'",
+    "ALTER TABLE user_cards MODIFY status ENUM('owned', 'waiting_stock', 'sold', 'withdrawn', 'upgraded') NOT NULL DEFAULT 'owned'",
   );
 
   const shippingAlterStatements = [
     "ALTER TABLE user_cards ADD COLUMN paid_price_usd DECIMAL(10,2) NULL AFTER value_usd",
+    "ALTER TABLE user_cards ADD COLUMN source_shop_id INT NULL AFTER paid_price_usd",
     "ALTER TABLE user_cards ADD COLUMN shipment_status ENUM('pending', 'shipped', 'delivered') NULL DEFAULT NULL AFTER status",
     "ALTER TABLE user_cards ADD COLUMN tracking_number VARCHAR(160) NULL AFTER shipment_status",
     "ALTER TABLE user_cards ADD COLUMN shipped_at DATETIME NULL AFTER tracking_number",
@@ -246,9 +249,34 @@ async function migrate(connectionPool) {
   );
   await connectionPool.query(`
     UPDATE user_cards
+    INNER JOIN booster_packs ON booster_packs.id = user_cards.pack_id
+    SET user_cards.source_shop_id = booster_packs.shop_id
+    WHERE user_cards.source_shop_id IS NULL
+  `);
+  await connectionPool.query(`
+    UPDATE user_cards
     LEFT JOIN booster_packs ON booster_packs.id = user_cards.pack_id
     SET user_cards.paid_price_usd = COALESCE(booster_packs.price, 0)
     WHERE user_cards.paid_price_usd IS NULL
+  `);
+
+  await connectionPool.query(`
+    CREATE TABLE IF NOT EXISTS upgrader_runs (
+      id VARCHAR(80) PRIMARY KEY,
+      user_id INT NOT NULL,
+      stake_card_ids JSON NOT NULL,
+      stake_value_usd DECIMAL(10,2) NOT NULL,
+      target_stock_id INT NOT NULL,
+      target_card_json JSON NOT NULL,
+      target_value_usd DECIMAL(10,2) NOT NULL,
+      chance_percent DECIMAL(10,6) NOT NULL,
+      roll_percent DECIMAL(10,6) NOT NULL,
+      result ENUM('won', 'lost') NOT NULL,
+      awarded_user_card_id INT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX upgrader_user_idx (user_id),
+      INDEX upgrader_created_idx (created_at)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
   `);
 }
 
@@ -601,6 +629,210 @@ function publicUserCard(row) {
     deliveredAt: row.delivered_at ?? undefined,
     acquiredAt: row.acquired_at,
   };
+}
+
+const UPGRADER_RTP = 0.9;
+const UPGRADER_MAX_CHANCE = 90;
+
+function upgraderChance(stakeValue, targetValue) {
+  if (stakeValue <= 0 || targetValue <= stakeValue) {
+    return 0;
+  }
+
+  return Math.min(
+    UPGRADER_MAX_CHANCE,
+    Number(((stakeValue / targetValue) * 100 * UPGRADER_RTP).toFixed(6)),
+  );
+}
+
+async function listUpgraderOptions(session) {
+  const connectionPool = await getPool();
+  const [inventoryRows] = await connectionPool.execute(
+    `
+      SELECT id, pack_id, pack_name, card_json, value_usd, status,
+        shipment_status, tracking_number, shipped_at, delivered_at, acquired_at
+      FROM user_cards
+      WHERE user_id = ? AND status IN ('owned', 'waiting_stock')
+      ORDER BY value_usd DESC, acquired_at DESC
+    `,
+    [session.id],
+  );
+  const [targetRows] = await connectionPool.execute(`
+    SELECT shop_card_stock.id, shop_card_stock.card_json, shop_card_stock.quantity
+    FROM shop_card_stock
+    INNER JOIN users ON users.id = shop_card_stock.shop_id
+    WHERE shop_card_stock.quantity > 0
+      AND users.role = 'admin'
+    ORDER BY CAST(JSON_UNQUOTE(JSON_EXTRACT(shop_card_stock.card_json, '$.priceUsd')) AS DECIMAL(10,2)) ASC
+  `);
+
+  return {
+    inventory: inventoryRows.map(publicUserCard),
+    targets: targetRows
+      .map(publicStockItem)
+      .filter((item) => Number(item.card?.priceUsd ?? 0) > 0),
+    rtp: UPGRADER_RTP * 100,
+    maxChance: UPGRADER_MAX_CHANCE,
+  };
+}
+
+async function playUpgrader(session, body) {
+  const rawIds = Array.isArray(body.stakeCardIds) ? body.stakeCardIds : [];
+  const stakeCardIds = [...new Set(rawIds.map(Number).filter(Number.isInteger))];
+  const targetStockId = Number(body.targetStockId);
+
+  if (!stakeCardIds.length || stakeCardIds.length > 20) {
+    throw Object.assign(new Error("Elegí entre 1 y 20 premios para apostar."), {
+      status: 400,
+    });
+  }
+
+  if (!Number.isInteger(targetStockId) || targetStockId <= 0) {
+    throw Object.assign(new Error("Elegí un premio objetivo."), { status: 400 });
+  }
+
+  const connectionPool = await getPool();
+  const connection = await connectionPool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+    const placeholders = stakeCardIds.map(() => "?").join(", ");
+    const [stakeRows] = await connection.execute(
+      `
+        SELECT id, value_usd, card_json
+        FROM user_cards
+        WHERE user_id = ?
+          AND id IN (${placeholders})
+          AND status IN ('owned', 'waiting_stock')
+        FOR UPDATE
+      `,
+      [session.id, ...stakeCardIds],
+    );
+
+    if (stakeRows.length !== stakeCardIds.length) {
+      throw Object.assign(
+        new Error("Uno de los premios apostados ya no está disponible."),
+        { status: 409 },
+      );
+    }
+
+    const [targetRows] = await connection.execute(
+      `
+        SELECT shop_card_stock.id, shop_card_stock.shop_id,
+          shop_card_stock.card_json, shop_card_stock.quantity
+        FROM shop_card_stock
+        INNER JOIN users ON users.id = shop_card_stock.shop_id
+        WHERE shop_card_stock.id = ?
+          AND shop_card_stock.quantity > 0
+          AND users.role = 'admin'
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [targetStockId],
+    );
+    const targetRow = targetRows[0];
+
+    if (!targetRow) {
+      throw Object.assign(new Error("El premio objetivo ya no está disponible."), {
+        status: 409,
+      });
+    }
+
+    const targetCard = normalizeCard(parseCard(targetRow.card_json));
+    const targetKey = stockCardKey(targetCard);
+    const repeatsStakedItem = stakeRows.some(
+      (row) => stockCardKey(parseCard(row.card_json)) === targetKey,
+    );
+
+    if (repeatsStakedItem) {
+      throw Object.assign(
+        new Error("El premio objetivo debe ser distinto de los apostados."),
+        { status: 400 },
+      );
+    }
+
+    const targetValue = Number(targetCard.priceUsd ?? 0);
+    const stakeValue = Number(
+      stakeRows
+        .reduce((total, row) => total + Number(row.value_usd ?? 0), 0)
+        .toFixed(2),
+    );
+    const chance = upgraderChance(stakeValue, targetValue);
+
+    if (!chance) {
+      throw Object.assign(
+        new Error("El premio objetivo debe valer más que la apuesta."),
+        { status: 400 },
+      );
+    }
+
+    const roll = randomInt(0, 100_000_000) / 1_000_000;
+    const won = roll < chance;
+    const runId = randomUUID();
+
+    await connection.execute(
+      `UPDATE user_cards SET status = 'upgraded' WHERE user_id = ? AND id IN (${placeholders})`,
+      [session.id, ...stakeCardIds],
+    );
+
+    let awardedUserCardId = null;
+    if (won) {
+      const [insertResult] = await connection.execute(
+        `
+          INSERT INTO user_cards (
+            user_id, pack_id, pack_name, card_json, value_usd,
+            paid_price_usd, source_shop_id, status
+          ) VALUES (?, NULL, 'Upgrader', ?, ?, 0, ?, 'owned')
+        `,
+        [
+          session.id,
+          JSON.stringify(targetCard),
+          targetValue,
+          Number(targetRow.shop_id),
+        ],
+      );
+      awardedUserCardId = Number(insertResult.insertId);
+    }
+
+    await connection.execute(
+      `
+        INSERT INTO upgrader_runs (
+          id, user_id, stake_card_ids, stake_value_usd, target_stock_id,
+          target_card_json, target_value_usd, chance_percent, roll_percent,
+          result, awarded_user_card_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        runId,
+        session.id,
+        JSON.stringify(stakeCardIds),
+        stakeValue,
+        targetStockId,
+        JSON.stringify(targetCard),
+        targetValue,
+        chance,
+        roll,
+        won ? "won" : "lost",
+        awardedUserCardId,
+      ],
+    );
+
+    await connection.commit();
+    return {
+      runId,
+      won,
+      chance,
+      roll,
+      stakeValueUsd: stakeValue,
+      target: publicStockItem(targetRow),
+      awardedUserCardId,
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 }
 
 function weightedPick(items) {
@@ -1336,8 +1568,10 @@ async function openPackForUser(packId, session) {
     }
     const [insertResult] = await connection.execute(
       `
-        INSERT INTO user_cards (user_id, pack_id, pack_name, card_json, value_usd, paid_price_usd, status)
-        VALUES (?, ?, ?, ?, ?, ?, 'owned')
+        INSERT INTO user_cards (
+          user_id, pack_id, pack_name, card_json, value_usd,
+          paid_price_usd, source_shop_id, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'owned')
       `,
       [
         session.id,
@@ -1346,6 +1580,7 @@ async function openPackForUser(packId, session) {
         JSON.stringify(normalizeCard(winner.card)),
         Number(Math.max(0, winner.card.priceUsd ?? 0).toFixed(2)),
         packPrice,
+        shopId,
       ],
     );
     const [updatedUserRows] = await connection.execute(
@@ -1724,7 +1959,7 @@ async function withdrawUserCard(session, cardId) {
 
     const [cardRows] = await connection.execute(
       `
-        SELECT id, card_json, status, pack_id
+        SELECT id, card_json, status, pack_id, source_shop_id
         FROM user_cards
         WHERE id = ?
           AND user_id = ?
@@ -1741,11 +1976,15 @@ async function withdrawUserCard(session, cardId) {
       });
     }
 
-    const [packRows] = await connection.execute(
-      "SELECT shop_id FROM booster_packs WHERE id = ? LIMIT 1",
-      [userCard.pack_id],
-    );
-    const shopId = Number(packRows[0]?.shop_id ?? 0);
+    let shopId = Number(userCard.source_shop_id ?? 0);
+
+    if (!shopId && userCard.pack_id) {
+      const [packRows] = await connection.execute(
+        "SELECT shop_id FROM booster_packs WHERE id = ? LIMIT 1",
+        [userCard.pack_id],
+      );
+      shopId = Number(packRows[0]?.shop_id ?? 0);
+    }
 
     if (!shopId) {
       throw Object.assign(
@@ -1907,6 +2146,30 @@ async function handleRequest(request, response) {
     }
 
     sendJson(response, 200, await listUserCards(session));
+    return;
+  }
+
+  if (request.method === "GET" && pathname === "/api/upgrader") {
+    const session = requireUser(request);
+
+    if (!session) {
+      sendJson(response, 401, { error: "Inicia sesion." });
+      return;
+    }
+
+    sendJson(response, 200, await listUpgraderOptions(session));
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/api/upgrader/play") {
+    const session = requireUser(request);
+
+    if (!session) {
+      sendJson(response, 401, { error: "Inicia sesion." });
+      return;
+    }
+
+    sendJson(response, 200, await playUpgrader(session, await readJsonBody(request)));
     return;
   }
 
