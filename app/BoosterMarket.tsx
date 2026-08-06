@@ -2720,7 +2720,7 @@ export function BoosterMarket({
     setDraftGame(pack.game);
     setDraftPrice(pack.price);
     setDraftItems(pack.items);
-    setAdminMessage(`Editando ${pack.name}.`);
+    setAdminMessage("");
   };
 
   const topUpWallet = async () => {
@@ -4050,6 +4050,12 @@ export function BoosterMarket({
       Number.isFinite(parsedDraftQuantity)
         ? Math.max(0, Math.floor(parsedDraftQuantity))
         : stockItem.quantity;
+    const isInDraft = draftItems.some(
+      (item) =>
+        item.card.id === stockItem.card.id &&
+        item.card.game === stockItem.card.game &&
+        itemTypeOf(item.card) === itemTypeOf(stockItem.card),
+    );
 
     return (
       <article
@@ -4166,12 +4172,22 @@ export function BoosterMarket({
         </button>
         {withPackAction && (
           <button
-            className="stock-add-pack"
-            disabled={stockItem.quantity <= 0}
+            className={`stock-add-pack${isInDraft ? " in-pack" : ""}`}
+            disabled={stockItem.quantity <= 0 || isInDraft}
             onClick={() => addCardToDraft(stockItem.card)}
             type="button"
           >
-            A la caja
+            {isInDraft ? (
+              <>
+                <CircleCheck size={16} aria-hidden />
+                En la caja
+              </>
+            ) : (
+              <>
+                <Plus size={16} aria-hidden />
+                A la caja
+              </>
+            )}
           </button>
         )}
       </div>
@@ -4480,6 +4496,27 @@ export function BoosterMarket({
         <>
           <div className="admin-grid packs-grid">
             <div className="admin-form">
+              <div className={`pack-editor-heading${editingPackId ? " editing" : ""}`}>
+                <div className="pack-editor-icon" aria-hidden>
+                  {editingPackId ? <Pencil size={19} /> : <Plus size={19} />}
+                </div>
+                <div>
+                  <span>{editingPackId ? "Editando caja" : "Nueva caja"}</span>
+                  <strong>
+                    {editingPackId ? draftName || "Sin nombre" : "Configura sus datos"}
+                  </strong>
+                </div>
+                {editingPackId && (
+                  <button
+                    aria-label="Cancelar edicion"
+                    onClick={resetDraftPack}
+                    title="Cancelar edicion"
+                    type="button"
+                  >
+                    <X size={17} aria-hidden />
+                  </button>
+                )}
+              </div>
               <label>
                 Nombre de la caja
                 <input

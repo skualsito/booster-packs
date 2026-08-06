@@ -8064,6 +8064,93 @@ a:has(> .material-icon) {
   transform: translateY(-2px);
 }
 
+.design-v3 .pack-editor-heading {
+  align-items: center;
+  background: #20212a;
+  border: 1px solid #30323d;
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  margin-bottom: 20px;
+  padding: 12px;
+}
+
+.design-v3 .pack-editor-heading.editing {
+  background: rgba(124, 92, 255, 0.09);
+  border-color: rgba(155, 126, 255, 0.38);
+}
+
+.design-v3 .pack-editor-icon {
+  align-items: center;
+  background: #2a2639;
+  border-radius: 7px;
+  color: #ad99ff;
+  display: flex;
+  height: 38px;
+  justify-content: center;
+  width: 38px;
+}
+
+.design-v3 .pack-editor-heading > div:nth-child(2) {
+  min-width: 0;
+}
+
+.design-v3 .pack-editor-heading span,
+.design-v3 .pack-editor-heading strong {
+  display: block;
+}
+
+.design-v3 .pack-editor-heading span {
+  color: #a995ff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.design-v3 .pack-editor-heading strong {
+  color: #f4f4f8;
+  font-size: 0.9rem;
+  line-height: 1.25;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.design-v3 .pack-editor-heading > button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid #40394f;
+  border-radius: 7px;
+  color: #aaa6b8;
+  cursor: pointer;
+  display: flex;
+  height: 34px;
+  justify-content: center;
+  padding: 0;
+  width: 34px;
+}
+
+.design-v3 .pack-editor-heading > button:hover {
+  background: #30283e;
+  border-color: #68578a;
+  color: #ffffff;
+}
+
+.design-v3 .stock-actions .stock-add-pack.in-pack,
+.design-v3 .stock-actions .stock-add-pack.in-pack:disabled {
+  background: rgba(124, 92, 255, 0.15);
+  border-color: rgba(155, 126, 255, 0.42);
+  color: #c8bbff;
+  cursor: default;
+  opacity: 1;
+}
+
+.design-v3 .stock-actions .stock-add-pack.in-pack:hover {
+  transform: none;
+}
+
 .design-v3 .stock-stepper-buttons button,
 .design-v3 .modal-close,
 .design-v3 .pack-open-icon,
