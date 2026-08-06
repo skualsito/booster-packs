@@ -161,7 +161,9 @@ type UpgraderPlayResponse = {
   roll?: number;
   stakeValueUsd?: number;
   target?: ShopStockItem;
+  targetQuantity?: number;
   awardedUserCardId?: number | null;
+  awardedUserCardIds?: number[];
   error?: string;
 };
 
@@ -1195,6 +1197,7 @@ export function BoosterMarket({
   const [upgraderTargets, setUpgraderTargets] = useState<ShopStockItem[]>([]);
   const [upgraderStakeIds, setUpgraderStakeIds] = useState<number[]>([]);
   const [upgraderTargetId, setUpgraderTargetId] = useState<number | null>(null);
+  const [upgraderTargetQuantity, setUpgraderTargetQuantity] = useState(1);
   const [upgraderQuery, setUpgraderQuery] = useState("");
   const [upgraderGame, setUpgraderGame] = useState<PackGame>("mixed");
   const [upgraderPreset, setUpgraderPreset] = useState<number | null>(null);
@@ -1979,7 +1982,15 @@ export function BoosterMarket({
   );
   const upgraderTarget =
     upgraderTargets.find((item) => item.id === upgraderTargetId) ?? null;
-  const upgraderTargetValue = Number(upgraderTarget?.card.priceUsd ?? 0);
+  const upgraderTargetMaxQuantity = Math.min(
+    20,
+    Math.max(1, upgraderTarget?.quantity ?? 1),
+  );
+  const upgraderTargetValue = Number(
+    (
+      Number(upgraderTarget?.card.priceUsd ?? 0) * upgraderTargetQuantity
+    ).toFixed(2),
+  );
   const upgraderChance =
     upgraderStakeValue > 0 && upgraderTargetValue > upgraderStakeValue
       ? Math.min(
@@ -2003,6 +2014,10 @@ export function BoosterMarket({
       : Number.POSITIVE_INFINITY;
 
   useEffect(() => {
+    setUpgraderTargetQuantity(1);
+  }, [upgraderTargetId]);
+
+  useEffect(() => {
     if (upgraderPreset === null) {
       return;
     }
@@ -2018,6 +2033,7 @@ export function BoosterMarket({
 
   const filteredUpgraderTargets = upgraderTargets.filter((item) => {
     const price = Number(item.card.priceUsd ?? 0);
+    const maximumTargetValue = price * Math.min(20, Math.max(1, item.quantity));
     const repeatsStake = upgraderStakeCards.some(
       (stake) =>
         stake.card.id === item.card.id &&
@@ -2034,7 +2050,7 @@ export function BoosterMarket({
 
     return (
       !repeatsStake &&
-      price > upgraderStakeValue &&
+      maximumTargetValue > upgraderStakeValue &&
       price >= effectiveUpgraderMinPrice &&
       price <= effectiveUpgraderMaxPrice &&
       gameMatches &&
@@ -3021,6 +3037,7 @@ export function BoosterMarket({
         body: JSON.stringify({
           stakeCardIds: upgraderStakeIds,
           targetStockId: upgraderTarget.id,
+          targetQuantity: upgraderTargetQuantity,
         }),
       });
       const payload = (await response.json()) as UpgraderPlayResponse;
@@ -5857,6 +5874,61 @@ export function BoosterMarket({
                       ? formatUsd.format(upgraderTargetValue)
                       : "Tu objetivo aparecerá acá"}
                   </span>
+                  {upgraderTarget && (
+                    <div className="upgrader-target-quantity">
+                      <small>Cantidad</small>
+                      <div>
+                        <button
+                          aria-label="Quitar una unidad"
+                          disabled={upgraderPlaying || upgraderTargetQuantity <= 1}
+                          onClick={() =>
+                            setUpgraderTargetQuantity((current) =>
+                              Math.max(1, current - 1),
+                            )
+                          }
+                          type="button"
+                        >
+                          −
+                        </button>
+                        <input
+                          aria-label="Cantidad del premio objetivo"
+                          disabled={upgraderPlaying}
+                          inputMode="numeric"
+                          max={upgraderTargetMaxQuantity}
+                          min="1"
+                          onChange={(event) => {
+                            const quantity = Number(event.target.value);
+                            if (Number.isFinite(quantity)) {
+                              setUpgraderTargetQuantity(
+                                Math.min(
+                                  upgraderTargetMaxQuantity,
+                                  Math.max(1, Math.floor(quantity)),
+                                ),
+                              );
+                            }
+                          }}
+                          type="number"
+                          value={upgraderTargetQuantity}
+                        />
+                        <button
+                          aria-label="Agregar una unidad"
+                          disabled={
+                            upgraderPlaying ||
+                            upgraderTargetQuantity >= upgraderTargetMaxQuantity
+                          }
+                          onClick={() =>
+                            setUpgraderTargetQuantity((current) =>
+                              Math.min(upgraderTargetMaxQuantity, current + 1),
+                            )
+                          }
+                          type="button"
+                        >
+                          +
+                        </button>
+                      </div>
+                      <em>Máximo disponible: {upgraderTargetMaxQuantity}</em>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="upgrader-target-tools">
@@ -5984,7 +6056,7 @@ export function BoosterMarket({
                 <span>{upgraderOutcome.won ? "Upgrade conseguido" : "No salió"}</span>
                 <h2>
                   {upgraderOutcome.won
-                    ? upgraderOutcome.target?.card.name
+                    ? `${upgraderOutcome.targetQuantity && upgraderOutcome.targetQuantity > 1 ? `${upgraderOutcome.targetQuantity} × ` : ""}${upgraderOutcome.target?.card.name ?? "Premio"}`
                     : "La rueda quedó fuera de la zona ganadora"}
                 </h2>
                 <p>

@@ -268,6 +268,7 @@ async function migrate(connectionPool) {
       stake_value_usd DECIMAL(10,2) NOT NULL,
       target_stock_id INT NOT NULL,
       target_card_json JSON NOT NULL,
+      target_quantity INT NOT NULL DEFAULT 1,
       target_value_usd DECIMAL(10,2) NOT NULL,
       chance_percent DECIMAL(10,6) NOT NULL,
       roll_percent DECIMAL(10,6) NOT NULL,
@@ -361,6 +362,10 @@ async function migrateExistingTables(connectionPool) {
     [
       "ALTER TABLE booster_packs ADD INDEX booster_packs_shop_slug_idx (shop_slug)",
       ["ER_DUP_KEYNAME"],
+    ],
+    [
+      "ALTER TABLE upgrader_runs ADD COLUMN target_quantity INT NOT NULL DEFAULT 1 AFTER target_card_json",
+      ["ER_DUP_FIELDNAME"],
     ],
   ];
 
@@ -680,6 +685,7 @@ async function playUpgrader(session, body) {
   const rawIds = Array.isArray(body.stakeCardIds) ? body.stakeCardIds : [];
   const stakeCardIds = [...new Set(rawIds.map(Number).filter(Number.isInteger))];
   const targetStockId = Number(body.targetStockId);
+  const targetQuantity = Number(body.targetQuantity ?? 1);
 
   if (!stakeCardIds.length || stakeCardIds.length > 20) {
     throw Object.assign(new Error("Elegí entre 1 y 20 premios para apostar."), {
@@ -689,6 +695,12 @@ async function playUpgrader(session, body) {
 
   if (!Number.isInteger(targetStockId) || targetStockId <= 0) {
     throw Object.assign(new Error("Elegí un premio objetivo."), { status: 400 });
+  }
+
+  if (!Number.isInteger(targetQuantity) || targetQuantity < 1 || targetQuantity > 20) {
+    throw Object.assign(new Error("Elegí entre 1 y 20 unidades del premio."), {
+      status: 400,
+    });
   }
 
   const connectionPool = await getPool();
@@ -723,12 +735,12 @@ async function playUpgrader(session, body) {
         FROM shop_card_stock
         INNER JOIN users ON users.id = shop_card_stock.shop_id
         WHERE shop_card_stock.id = ?
-          AND shop_card_stock.quantity > 0
+          AND shop_card_stock.quantity >= ?
           AND users.role = 'admin'
         LIMIT 1
         FOR UPDATE
       `,
-      [targetStockId],
+      [targetStockId, targetQuantity],
     );
     const targetRow = targetRows[0];
 
@@ -751,7 +763,8 @@ async function playUpgrader(session, body) {
       );
     }
 
-    const targetValue = Number(targetCard.priceUsd ?? 0);
+    const targetUnitValue = Number(targetCard.priceUsd ?? 0);
+    const targetValue = Number((targetUnitValue * targetQuantity).toFixed(2));
     const stakeValue = Number(
       stakeRows
         .reduce((total, row) => total + Number(row.value_usd ?? 0), 0)
@@ -776,31 +789,35 @@ async function playUpgrader(session, body) {
     );
 
     let awardedUserCardId = null;
+    const awardedUserCardIds = [];
     if (won) {
-      const [insertResult] = await connection.execute(
-        `
-          INSERT INTO user_cards (
-            user_id, pack_id, pack_name, card_json, value_usd,
-            paid_price_usd, source_shop_id, status
-          ) VALUES (?, NULL, 'Upgrader', ?, ?, 0, ?, 'owned')
-        `,
-        [
-          session.id,
-          JSON.stringify(targetCard),
-          targetValue,
-          Number(targetRow.shop_id),
-        ],
-      );
-      awardedUserCardId = Number(insertResult.insertId);
+      for (let index = 0; index < targetQuantity; index += 1) {
+        const [insertResult] = await connection.execute(
+          `
+            INSERT INTO user_cards (
+              user_id, pack_id, pack_name, card_json, value_usd,
+              paid_price_usd, source_shop_id, status
+            ) VALUES (?, NULL, 'Upgrader', ?, ?, 0, ?, 'owned')
+          `,
+          [
+            session.id,
+            JSON.stringify(targetCard),
+            targetUnitValue,
+            Number(targetRow.shop_id),
+          ],
+        );
+        awardedUserCardIds.push(Number(insertResult.insertId));
+      }
+      awardedUserCardId = awardedUserCardIds[0] ?? null;
     }
 
     await connection.execute(
       `
         INSERT INTO upgrader_runs (
           id, user_id, stake_card_ids, stake_value_usd, target_stock_id,
-          target_card_json, target_value_usd, chance_percent, roll_percent,
+          target_card_json, target_quantity, target_value_usd, chance_percent, roll_percent,
           result, awarded_user_card_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         runId,
@@ -809,6 +826,7 @@ async function playUpgrader(session, body) {
         stakeValue,
         targetStockId,
         JSON.stringify(targetCard),
+        targetQuantity,
         targetValue,
         chance,
         roll,
@@ -825,7 +843,9 @@ async function playUpgrader(session, body) {
       roll,
       stakeValueUsd: stakeValue,
       target: publicStockItem(targetRow),
+      targetQuantity,
       awardedUserCardId,
+      awardedUserCardIds,
     };
   } catch (error) {
     await connection.rollback();

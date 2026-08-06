@@ -8421,6 +8421,79 @@ a:has(> .material-icon) {
   font-weight: 500;
 }
 
+.upgrader-target-quantity {
+  align-items: end;
+  display: grid;
+  gap: 5px 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-top: 11px;
+}
+
+.upgrader-target-quantity > small {
+  grid-column: 1;
+}
+
+.upgrader-target-quantity > div {
+  align-items: center;
+  display: grid;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  grid-template-columns: 30px 42px 30px;
+}
+
+.upgrader-target-quantity button,
+.upgrader-target-quantity input {
+  align-items: center;
+  appearance: textfield;
+  background: #242630;
+  border: 1px solid #414351;
+  color: #f4f4f8;
+  display: flex;
+  font-size: 0.82rem;
+  height: 32px;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  text-align: center;
+  width: 100%;
+}
+
+.upgrader-target-quantity button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.upgrader-target-quantity button:last-child {
+  border-radius: 0 6px 6px 0;
+}
+
+.upgrader-target-quantity button:not(:disabled) {
+  color: #b9aaff;
+  cursor: pointer;
+}
+
+.upgrader-target-quantity button:disabled {
+  color: #626472;
+}
+
+.upgrader-target-quantity input {
+  border-left: 0;
+  border-radius: 0;
+  border-right: 0;
+}
+
+.upgrader-target-quantity input::-webkit-inner-spin-button,
+.upgrader-target-quantity input::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.upgrader-target-quantity em {
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-style: normal;
+  grid-column: 1;
+}
+
 .upgrader-item-list {
   display: grid;
   flex: 1;
