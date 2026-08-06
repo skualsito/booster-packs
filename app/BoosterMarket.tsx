@@ -5806,7 +5806,7 @@ export function BoosterMarket({
   const pageTransitionKey = [view, initialPackId ?? ""].join(":");
 
   return (
-    <main className="market-shell">
+    <main className="market-shell design-v3">
       <header className="app-header">
         <Link className="brand-link" href="/">
           <PackageOpen size={20} aria-hidden />
