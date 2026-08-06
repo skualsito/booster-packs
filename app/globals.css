@@ -8242,6 +8242,90 @@ a:has(> .material-icon) {
   box-shadow: inset 3px 0 0 #7c5cff;
 }
 
+.upgrader-selection-card.stake-selection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 134px;
+  position: relative;
+}
+
+.upgrader-selection-card.stake-selection .upgrader-selection-copy {
+  padding-right: 42px;
+  width: 100%;
+}
+
+.upgrader-selection-strip {
+  display: flex;
+  gap: 8px;
+  max-width: 100%;
+  min-height: 86px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 3px 6px;
+  width: 100%;
+}
+
+.upgrader-selection-thumb,
+.upgrader-target-preview {
+  background: #242630;
+  border: 1px solid #414351;
+  border-radius: 6px;
+  cursor: pointer;
+  flex: 0 0 62px;
+  height: 82px;
+  padding: 3px;
+  position: relative;
+  transition: border-color 160ms ease, transform 160ms ease;
+  width: 62px;
+}
+
+.upgrader-selection-thumb:hover,
+.upgrader-target-preview:hover {
+  border-color: #ff7897;
+  transform: translateY(-2px);
+}
+
+.upgrader-selection-thumb img,
+.upgrader-target-preview img {
+  border: 0;
+  border-radius: 4px;
+  height: 100%;
+  object-fit: contain;
+  position: static;
+  transform: none;
+  width: 100%;
+}
+
+.upgrader-selection-thumb > span,
+.upgrader-target-preview > span {
+  align-items: center;
+  background: #ff6685;
+  border: 2px solid #242630;
+  border-radius: 50%;
+  color: #ffffff;
+  display: flex;
+  height: 22px;
+  justify-content: center;
+  position: absolute;
+  right: -7px;
+  top: -7px;
+  width: 22px;
+  z-index: 4;
+}
+
+.upgrader-selection-placeholder {
+  align-items: center;
+  color: #777987;
+  display: flex;
+  height: 48px;
+  justify-content: center;
+  position: absolute;
+  right: 16px;
+  top: 42px;
+  width: 48px;
+}
+
 .upgrader-selection-images {
   align-items: center;
   color: #777987;
@@ -8283,6 +8367,19 @@ a:has(> .material-icon) {
 .upgrader-selection-images.single img {
   left: 11px;
   transform: none;
+}
+
+.upgrader-selection-images.single .upgrader-target-preview {
+  flex-basis: 62px;
+}
+
+.upgrader-selection-images.single .upgrader-target-preview img {
+  border: 0;
+  height: 100%;
+  left: auto;
+  position: static;
+  transform: none;
+  width: 100%;
 }
 
 .upgrader-selection-copy {

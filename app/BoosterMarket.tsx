@@ -5666,28 +5666,12 @@ export function BoosterMarket({
                 </div>
                 <small>{upgraderStakeCards.length}/20 elegidos</small>
               </div>
-              <div className={`upgrader-selection-card${upgraderStakeCards.length ? " filled" : ""}`}>
-                <div className="upgrader-selection-images" aria-hidden>
-                  {upgraderStakeCards.length ? (
-                    upgraderStakeCards.slice(0, 3).map((item) => (
-                      <img
-                        src={cardImage(item.card)}
-                        alt=""
-                        key={item.id}
-                        onError={handleImageError(item.card.game)}
-                      />
-                    ))
-                  ) : (
-                    <Trophy size={28} />
-                  )}
-                </div>
+              <div className={`upgrader-selection-card stake-selection${upgraderStakeCards.length ? " filled" : ""}`}>
                 <div className="upgrader-selection-copy">
                   <small>Premios seleccionados</small>
                   <strong>
                     {upgraderStakeCards.length
-                      ? upgraderStakeCards.length === 1
-                        ? upgraderStakeCards[0].card.name
-                        : `${upgraderStakeCards.length} premios en tu apuesta`
+                      ? `${upgraderStakeCards.length} ${upgraderStakeCards.length === 1 ? "premio" : "premios"}`
                       : "Elegí qué querés apostar"}
                   </strong>
                   <span>
@@ -5696,6 +5680,32 @@ export function BoosterMarket({
                       : "Tu selección aparecerá acá"}
                   </span>
                 </div>
+                {upgraderStakeCards.length ? (
+                  <div className="upgrader-selection-strip">
+                    {upgraderStakeCards.map((item) => (
+                      <button
+                        aria-label={`Quitar ${item.card.name} de la apuesta`}
+                        className="upgrader-selection-thumb"
+                        disabled={upgraderPlaying}
+                        key={item.id}
+                        onClick={() => toggleUpgraderStake(item.id)}
+                        title={`Quitar ${item.card.name}`}
+                        type="button"
+                      >
+                        <img
+                          src={cardImage(item.card)}
+                          alt=""
+                          onError={handleImageError(item.card.game)}
+                        />
+                        <span aria-hidden><X size={13} /></span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="upgrader-selection-placeholder" aria-hidden>
+                    <Trophy size={28} />
+                  </div>
+                )}
               </div>
               <div className="upgrader-item-list">
                 {ownedWonCards.length ? (
@@ -5813,15 +5823,28 @@ export function BoosterMarket({
                 <small>{filteredUpgraderTargets.length} disponibles</small>
               </div>
               <div className={`upgrader-selection-card${upgraderTarget ? " filled" : ""}`}>
-                <div className="upgrader-selection-images single" aria-hidden>
+                <div className="upgrader-selection-images single">
                   {upgraderTarget ? (
-                    <img
-                      src={cardImage(upgraderTarget.card)}
-                      alt=""
-                      onError={handleImageError(upgraderTarget.card.game)}
-                    />
+                    <button
+                      aria-label={`Quitar ${upgraderTarget.card.name} como objetivo`}
+                      className="upgrader-target-preview"
+                      disabled={upgraderPlaying}
+                      onClick={() => {
+                        setUpgraderOutcome(null);
+                        setUpgraderTargetId(null);
+                      }}
+                      title={`Quitar ${upgraderTarget.card.name}`}
+                      type="button"
+                    >
+                      <img
+                        src={cardImage(upgraderTarget.card)}
+                        alt=""
+                        onError={handleImageError(upgraderTarget.card.game)}
+                      />
+                      <span aria-hidden><X size={13} /></span>
+                    </button>
                   ) : (
-                    <Sparkles size={28} />
+                    <Sparkles size={28} aria-hidden />
                   )}
                 </div>
                 <div className="upgrader-selection-copy">
