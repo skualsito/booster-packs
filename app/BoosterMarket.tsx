@@ -2792,7 +2792,7 @@ export function BoosterMarket({
       }
 
       updateSessionUser(payload.user);
-      setAuthMessage(`Se descontaron ${formatUsd.format(selectedPack.price)}.`);
+      setAuthMessage("");
       void loadWonCards();
       setWonCardsMessageTone("success");
       setWonCardsMessage(
@@ -3248,7 +3248,7 @@ export function BoosterMarket({
 
       spinWithWinner(payload.item, () => {
         updateSessionUser(payload.user);
-        setAuthMessage(`Se descontaron ${formatUsd.format(selectedPack.price)}.`);
+        setAuthMessage("");
         void loadWonCards();
         void loadRecentDrops(selectedPack.id);
         void loadDbPacks();
@@ -3766,7 +3766,10 @@ export function BoosterMarket({
               type="button"
             >
               <span className="content-prob">
-                Probabilidad {formatPercent.format(normalizedProbability(item, selectedPack))}%
+                <small>Probabilidad</small>
+                <strong>
+                  {formatPercent.format(normalizedProbability(item, selectedPack))}%
+                </strong>
               </span>
               <img
                 src={cardImage(item.card)}

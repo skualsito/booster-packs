@@ -8408,3 +8408,83 @@ a:has(> .material-icon) {
 .design-v3 .sort-control:focus-within .sort-select {
   background: rgba(124, 92, 255, 0.08);
 }
+
+/* Pack details: keep information readable without decorative pills or masks. */
+.design-v3 .content-prob {
+  align-items: baseline;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--muted);
+  display: flex;
+  gap: 6px;
+  padding: 0;
+}
+
+.design-v3 .content-prob small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.design-v3 .content-prob strong {
+  color: #c5b7ff;
+  display: inline;
+  font-size: 0.78rem;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.design-v3 .roulette-window::before {
+  background: linear-gradient(90deg, #14151c 0%, rgba(20, 21, 28, 0.82) 30%, transparent 100%);
+  width: min(7%, 72px);
+}
+
+.design-v3 .roulette-window::after {
+  background: linear-gradient(270deg, #14151c 0%, rgba(20, 21, 28, 0.82) 30%, transparent 100%);
+  width: min(7%, 72px);
+}
+
+.design-v3 .case-summary,
+.design-v3 .recent-drops,
+.design-v3 .drop-row,
+.design-v3 .drop-copy {
+  min-width: 0;
+}
+
+.design-v3 .drop-row {
+  grid-template-columns: 58px minmax(0, 1fr) max-content;
+}
+
+.design-v3 .drop-row strong,
+.design-v3 .metric-strip strong {
+  overflow-wrap: anywhere;
+}
+
+.design-v3 .roulette-item {
+  grid-template-rows: 136px 12px minmax(54px, 1fr) 20px;
+}
+
+.design-v3 .roulette-item span {
+  -webkit-line-clamp: 4;
+  font-size: 0.8rem;
+  line-height: 1.14;
+  max-height: 4.56em;
+}
+
+@media (max-width: 520px) {
+  .design-v3 .drop-row {
+    align-items: start;
+    grid-template-columns: 52px minmax(0, 1fr);
+  }
+
+  .design-v3 .drop-row img {
+    height: 70px;
+    width: 52px;
+  }
+
+  .design-v3 .drop-row b {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
