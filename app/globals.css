@@ -8145,6 +8145,7 @@ a:has(> .material-icon) {
 
 @media (min-width: 1181px) {
   .upgrader-layout {
+    grid-template-rows: minmax(0, 1fr);
     height: clamp(700px, calc(100vh - 150px), 790px);
   }
 }
@@ -8169,9 +8170,15 @@ a:has(> .material-icon) {
 .upgrader-panel {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
   padding: 18px;
+}
+
+.upgrader-center {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .upgrader-panel-heading {
