@@ -8527,3 +8527,41 @@ a:has(> .material-icon) {
     margin-top: 2px;
   }
 }
+
+/* Numeric admin fields stay native-looking, but always use the dark palette. */
+.design-v3 .admin-band input[type="number"],
+.design-v3 .stock-quantity-control input[type="number"],
+.design-v3 .draft-item input[type="number"],
+.design-v3 .sealed-stock-form input[type="number"] {
+  background: #242630;
+  border: 1px solid #343643;
+  color: #f1f1f5;
+  color-scheme: dark;
+}
+
+.design-v3 .admin-band input[type="number"]:hover,
+.design-v3 .stock-quantity-control input[type="number"]:hover,
+.design-v3 .draft-item input[type="number"]:hover,
+.design-v3 .sealed-stock-form input[type="number"]:hover {
+  background: #282a35;
+  border-color: #464958;
+}
+
+.design-v3 .admin-band input[type="number"]:focus,
+.design-v3 .stock-quantity-control input[type="number"]:focus,
+.design-v3 .draft-item input[type="number"]:focus,
+.design-v3 .sealed-stock-form input[type="number"]:focus {
+  background: #282a35;
+  border-color: #7c5cff;
+  box-shadow: 0 0 0 4px rgba(124, 92, 255, 0.13);
+  color: #ffffff;
+}
+
+.design-v3 .admin-band input[type="number"]::-webkit-inner-spin-button,
+.design-v3 .admin-band input[type="number"]::-webkit-outer-spin-button,
+.design-v3 .draft-item input[type="number"]::-webkit-inner-spin-button,
+.design-v3 .draft-item input[type="number"]::-webkit-outer-spin-button,
+.design-v3 .sealed-stock-form input[type="number"]::-webkit-inner-spin-button,
+.design-v3 .sealed-stock-form input[type="number"]::-webkit-outer-spin-button {
+  filter: invert(0.82);
+}
