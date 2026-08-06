@@ -918,11 +918,10 @@ const topItem = (pack: BoosterPack) =>
   [...pack.items].sort((a, b) => (b.card.priceUsd ?? 0) - (a.card.priceUsd ?? 0))[0];
 
 const TARGET_PAYOUT_RATE = 0.7;
+const MIN_PRICE_WEIGHT_EXPONENT = 0.35;
 const MAX_PRICE_WEIGHT_EXPONENT = 8;
-const PREMIUM_PROBABILITY_MASS = 12;
-const PREMIUM_EV_FLOOR_RATE = 0.015;
-const PREMIUM_PRICE_WEIGHT_EXPONENT = 2;
 const MINIMUM_ITEM_PROBABILITY = 0.01;
+const CHEAPEST_ITEM_WEIGHTS = [4, 3, 2.2];
 
 const weightedPick = (items: PackItem[]) => {
   const total = items.reduce(
@@ -998,16 +997,8 @@ const roundProbabilities = (probabilities: number[]) => {
   return rounded;
 };
 
-const premiumItemCount = (itemCount: number) => {
-  if (itemCount >= 14) return 5;
-  if (itemCount >= 7) return 3;
-  if (itemCount >= 4) return 2;
-  return Math.min(1, Math.max(0, itemCount - 1));
-};
-
-const tieredProbabilities = (
+const priceWeightedProbabilities = (
   items: PackItem[],
-  targetEv: number,
   exponent = 0,
 ) => {
   const pricedItems = items
@@ -1015,84 +1006,26 @@ const tieredProbabilities = (
       index,
       price: Math.max(item.card.priceUsd ?? 0, 0.05),
     }))
-    .sort((a, b) => b.price - a.price);
-  const premiumCount = premiumItemCount(items.length);
-  const premiumItems = pricedItems.slice(0, premiumCount);
-  const regularItems = pricedItems.slice(premiumCount);
-  const probabilities = Array.from({ length: items.length }, () => 0);
-
-  if (!regularItems.length) {
-    return probabilities.map(() => 100 / items.length);
-  }
-
-  const premiumWeights = premiumItems.map(
-    (item) => 1 / Math.pow(item.price, PREMIUM_PRICE_WEIGHT_EXPONENT),
-  );
-  const premiumShareTotal = premiumWeights.reduce(
-    (total, weight) => total + weight,
-    0,
-  );
-  const premiumAveragePrice = premiumShareTotal
-    ? premiumItems.reduce(
-        (total, item, index) =>
-          total + item.price * (premiumWeights[index] ?? 0),
-        0,
-      ) / premiumShareTotal
-    : 0;
-  const premiumExpectedValueBudget =
-    targetEv * (PREMIUM_EV_FLOOR_RATE / TARGET_PAYOUT_RATE);
-  const premiumExpectedValuePerMass = premiumAveragePrice / 100;
-  const minimumPremiumMass =
-    premiumExpectedValuePerMass > 0
-      ? premiumExpectedValueBudget / premiumExpectedValuePerMass
-      : 0;
-  const cheapestRegularPrice = Math.min(
-    ...regularItems.map((item) => item.price),
-  );
-  const maximumProfitablePremiumMass =
-    premiumAveragePrice > cheapestRegularPrice
-      ? ((targetEv - cheapestRegularPrice) /
-          (premiumAveragePrice - cheapestRegularPrice)) *
-        100
-      : PREMIUM_PROBABILITY_MASS;
-  const premiumMass = Math.max(
-    Math.min(PREMIUM_PROBABILITY_MASS, minimumPremiumMass),
-    Math.min(
-      PREMIUM_PROBABILITY_MASS,
-      Math.max(0, maximumProfitablePremiumMass * 0.85),
-    ),
-  );
-
-  premiumItems.forEach((item, index) => {
-    probabilities[item.index] =
-      premiumShareTotal > 0
-        ? (premiumMass * (premiumWeights[index] ?? 0)) / premiumShareTotal
-        : 0;
-  });
+    .sort((a, b) => a.price - b.price);
 
   const cheapRank = new Map(
-    [...regularItems]
-      .sort((a, b) => a.price - b.price)
+    pricedItems
       .slice(0, 3)
       .map((item, index) => [item.index, index]),
   );
-  const cheapTierWeights = [4, 3, 2.2];
-  const regularWeights = regularItems.map((item) => {
+  const weights = pricedItems.map((item) => {
     const rank = cheapRank.get(item.index);
-    const tierWeight = rank === undefined ? 1 : cheapTierWeights[rank];
+    const tierWeight = rank === undefined ? 1 : CHEAPEST_ITEM_WEIGHTS[rank];
     return tierWeight / Math.pow(item.price, exponent);
   });
-  const regularWeightTotal = regularWeights.reduce(
-    (total, weight) => total + weight,
-    0,
-  );
-  const regularMass = 100 - premiumMass;
+  const weightTotal = weights.reduce((total, weight) => total + weight, 0);
+  const probabilities = Array.from({ length: items.length }, () => 0);
 
-  regularItems.forEach((item, index) => {
+  pricedItems.forEach((item, index) => {
     probabilities[item.index] =
-      regularWeightTotal > 0
-        ? (regularWeights[index] / regularWeightTotal) * regularMass
-        : regularMass / regularItems.length;
+      weightTotal > 0
+        ? ((weights[index] ?? 0) / weightTotal) * 100
+        : 100 / items.length;
   });
 
   return probabilities;
@@ -1116,7 +1049,9 @@ const normalizeItems = (items: PackItem[], packPrice = 0) => {
   const targetEv = Math.max(0, packPrice) * TARGET_PAYOUT_RATE;
 
   if (!targetEv) {
-    const probabilities = roundProbabilities(tieredProbabilities(items, 0));
+    const probabilities = roundProbabilities(
+      priceWeightedProbabilities(items, MIN_PRICE_WEIGHT_EXPONENT),
+    );
 
     return items.map((item, index) => ({
       ...item,
@@ -1124,16 +1059,19 @@ const normalizeItems = (items: PackItem[], packPrice = 0) => {
     }));
   }
 
-  let bestProbabilities = tieredProbabilities(items, targetEv);
+  let bestProbabilities = priceWeightedProbabilities(
+    items,
+    MIN_PRICE_WEIGHT_EXPONENT,
+  );
 
   if (expectedValueFromProbabilities(items, bestProbabilities) > targetEv) {
-    let low = 0;
+    let low = MIN_PRICE_WEIGHT_EXPONENT;
     let high = MAX_PRICE_WEIGHT_EXPONENT;
-    bestProbabilities = tieredProbabilities(items, targetEv, high);
+    bestProbabilities = priceWeightedProbabilities(items, high);
 
     for (let attempt = 0; attempt < 28; attempt += 1) {
       const exponent = (low + high) / 2;
-      const probabilities = tieredProbabilities(items, targetEv, exponent);
+      const probabilities = priceWeightedProbabilities(items, exponent);
       const ev = expectedValueFromProbabilities(items, probabilities);
 
       if (ev > targetEv) {
@@ -3443,9 +3381,7 @@ export function BoosterMarket({
 
     const normalized = normalizeItems(draftItems, draftPrice);
     const pack: BoosterPack = {
-      id:
-        editingPackId ??
-        `admin-${crypto.randomUUID()}`,
+      id: editingPackId ?? crypto.randomUUID(),
       name: draftName.trim(),
       series: draftSeries.trim() || "Serie local",
       game: draftGame,

@@ -316,6 +316,61 @@ async function migrate(connectionPool) {
       INDEX changer_created_idx (created_at)
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
   `);
+
+  await migrateLegacyPackIds(connectionPool);
+}
+
+async function migrateLegacyPackIds(connectionPool) {
+  const [legacyPacks] = await connectionPool.query(
+    "SELECT id FROM booster_packs WHERE id LIKE 'admin-%'",
+  );
+
+  for (const row of legacyPacks) {
+    const legacyId = asTrimmedString(row.id);
+    let cleanId = legacyId.slice("admin-".length) || randomUUID();
+    const [existingRows] = await connectionPool.execute(
+      "SELECT id FROM booster_packs WHERE id = ? LIMIT 1",
+      [cleanId],
+    );
+
+    if (existingRows.length) {
+      cleanId = randomUUID();
+    }
+
+    const connection = await connectionPool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+      await connection.execute(
+        `
+          INSERT INTO booster_packs (
+            id, name, series, game, price, accent, created_by,
+            shop_id, shop_slug, shop_name, created_at, updated_at
+          )
+          SELECT ?, name, series, game, price, accent, created_by,
+            shop_id, shop_slug, shop_name, created_at, updated_at
+          FROM booster_packs
+          WHERE id = ?
+        `,
+        [cleanId, legacyId],
+      );
+      await connection.execute(
+        "UPDATE booster_pack_items SET pack_id = ? WHERE pack_id = ?",
+        [cleanId, legacyId],
+      );
+      await connection.execute(
+        "UPDATE user_cards SET pack_id = ? WHERE pack_id = ?",
+        [cleanId, legacyId],
+      );
+      await connection.execute("DELETE FROM booster_packs WHERE id = ?", [legacyId]);
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
 }
 
 async function migrateExistingTables(connectionPool) {
@@ -1631,7 +1686,7 @@ function normalizePackBody(body, session) {
   return {
     id:
       asTrimmedString(body.id).match(/^[a-zA-Z0-9:_-]{1,80}$/)?.[0] ??
-      `${createdBy}-${randomUUID()}`,
+      randomUUID(),
     name: asTrimmedString(body.name).slice(0, 160),
     series: asTrimmedString(body.series, "Serie local").slice(0, 160),
     game,

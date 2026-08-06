@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { BoosterMarket } from "../../BoosterMarket";
+
+const publicPackId = (packId: string) =>
+  packId.startsWith("admin-") ? packId.slice("admin-".length) : packId;
 
 export async function generateMetadata({
   params,
@@ -7,7 +11,7 @@ export async function generateMetadata({
   params: Promise<{ packId: string }>;
 }): Promise<Metadata> {
   const { packId } = await params;
-  const decodedPackId = decodeURIComponent(packId);
+  const decodedPackId = publicPackId(decodeURIComponent(packId));
 
   return {
     title: `Caja ${decodedPackId}`,
@@ -25,6 +29,12 @@ export default async function PackPage({
   params: Promise<{ packId: string }>;
 }) {
   const { packId } = await params;
+  const decodedPackId = decodeURIComponent(packId);
+  const cleanPackId = publicPackId(decodedPackId);
 
-  return <BoosterMarket initialPackId={decodeURIComponent(packId)} view="pack" />;
+  if (cleanPackId !== decodedPackId) {
+    redirect(`/packs/${encodeURIComponent(cleanPackId)}`);
+  }
+
+  return <BoosterMarket initialPackId={cleanPackId} view="pack" />;
 }
