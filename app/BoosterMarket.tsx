@@ -351,12 +351,40 @@ const ROULETTE_CARD_WIDTH = 164;
 const ROULETTE_GAP = 10;
 const ROULETTE_STRIDE = ROULETTE_CARD_WIDTH + ROULETTE_GAP;
 const HIT_PROBABILITY_THRESHOLD = 10;
+const UPGRADER_LANDING_INSET = 0.2;
 const HIT_CELEBRATION_PIECES = Array.from({ length: 28 }, (_, index) => ({
   color: ["#ffcf4a", "#73e4d7", "#ff7897", "#8dde72"][index % 4],
   delay: `${(index % 7) * 55}ms`,
   left: `${4 + ((index * 37) % 92)}%`,
   rotation: `${(index * 47) % 180}deg`,
 }));
+
+const safeUpgraderLandingPercent = (
+  roll: number,
+  chance: number,
+  won: boolean,
+) => {
+  const safeChance = Math.min(100, Math.max(0, chance));
+
+  if (won) {
+    const normalizedRoll = safeChance > 0 ? Math.min(1, roll / safeChance) : 0.5;
+    return (
+      safeChance *
+      (UPGRADER_LANDING_INSET +
+        normalizedRoll * (1 - UPGRADER_LANDING_INSET * 2))
+    );
+  }
+
+  const lossSize = Math.max(0, 100 - safeChance);
+  const normalizedRoll =
+    lossSize > 0 ? Math.min(1, Math.max(0, (roll - safeChance) / lossSize)) : 0.5;
+  return (
+    safeChance +
+    lossSize *
+      (UPGRADER_LANDING_INSET +
+        normalizedRoll * (1 - UPGRADER_LANDING_INSET * 2))
+  );
+};
 
 const formatUsd = new Intl.NumberFormat("es-AR", {
   style: "currency",
@@ -3006,7 +3034,12 @@ export function BoosterMarket({
         throw new Error(payload.error ?? "No se pudo completar el Upgrader.");
       }
 
-      const targetAngle = payload.roll * 3.6;
+      const landingPercent = safeUpgraderLandingPercent(
+        payload.roll,
+        payload.chance ?? upgraderChance,
+        payload.won,
+      );
+      const targetAngle = landingPercent * 3.6;
       setUpgraderRotation((current) => {
         const currentAngle = ((current % 360) + 360) % 360;
         const finalTurn = (targetAngle - currentAngle + 360) % 360;
