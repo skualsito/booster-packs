@@ -6633,6 +6633,43 @@ a:has(> .material-icon) {
   }
 }
 
+/* Dark action colors must win over the archived light V3 palette. */
+.design-v3 .won-card-actions button.sell-action {
+  background: rgba(124, 92, 255, 0.16);
+  border-color: rgba(151, 123, 255, 0.48);
+  color: #c9bbff;
+}
+
+.design-v3 .won-card-actions button.withdraw-action {
+  background: rgba(67, 139, 216, 0.14);
+  border-color: rgba(80, 154, 231, 0.42);
+  color: #93c9ff;
+}
+
+.design-v3 .won-card-actions button.retry-action {
+  background: rgba(205, 151, 53, 0.14);
+  border-color: rgba(222, 168, 66, 0.42);
+  color: #efc66f;
+}
+
+.design-v3 .won-card-actions button.sell-action:hover {
+  background: rgba(124, 92, 255, 0.27);
+  border-color: #8f72ff;
+  color: #eeeaff;
+}
+
+.design-v3 .won-card-actions button.withdraw-action:hover {
+  background: rgba(67, 139, 216, 0.24);
+  border-color: #5ca6ef;
+  color: #d9edff;
+}
+
+.design-v3 .won-card-actions button.retry-action:hover {
+  background: rgba(205, 151, 53, 0.24);
+  border-color: #d9a844;
+  color: #fff0c5;
+}
+
 @media (max-width: 560px) {
   .design-v3 .admin-user-browser,
   .design-v3 .admin-user-inventory {
