@@ -652,16 +652,18 @@ function upgraderChance(stakeValue, targetValue) {
 
 async function listUpgraderOptions(session) {
   const connectionPool = await getPool();
-  const [inventoryRows] = await connectionPool.execute(
-    `
-      SELECT id, pack_id, pack_name, card_json, value_usd, status,
-        shipment_status, tracking_number, shipped_at, delivered_at, acquired_at
-      FROM user_cards
-      WHERE user_id = ? AND status IN ('owned', 'waiting_stock')
-      ORDER BY value_usd DESC, acquired_at DESC
-    `,
-    [session.id],
-  );
+  const [inventoryRows] = session
+    ? await connectionPool.execute(
+        `
+          SELECT id, pack_id, pack_name, card_json, value_usd, status,
+            shipment_status, tracking_number, shipped_at, delivered_at, acquired_at
+          FROM user_cards
+          WHERE user_id = ? AND status IN ('owned', 'waiting_stock')
+          ORDER BY value_usd DESC, acquired_at DESC
+        `,
+        [session.id],
+      )
+    : [[]];
   const [targetRows] = await connectionPool.execute(`
     SELECT shop_card_stock.id, shop_card_stock.card_json, shop_card_stock.quantity
     FROM shop_card_stock
@@ -2171,12 +2173,6 @@ async function handleRequest(request, response) {
 
   if (request.method === "GET" && pathname === "/api/upgrader") {
     const session = requireUser(request);
-
-    if (!session) {
-      sendJson(response, 401, { error: "Inicia sesion." });
-      return;
-    }
-
     sendJson(response, 200, await listUpgraderOptions(session));
     return;
   }

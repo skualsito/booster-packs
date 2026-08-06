@@ -1436,15 +1436,12 @@ export function BoosterMarket({
   }, [session]);
 
   const loadUpgraderOptions = useCallback(async () => {
-    if (!session) {
-      setUpgraderTargets([]);
-      return;
-    }
-
     setUpgraderLoading(true);
     try {
       const response = await fetch(localApiUrl("/api/upgrader"), {
-        headers: { Authorization: `Bearer ${session.token}` },
+        headers: session
+          ? { Authorization: `Bearer ${session.token}` }
+          : undefined,
       });
       const payload = (await response.json()) as UpgraderOptionsResponse;
 
@@ -1452,12 +1449,14 @@ export function BoosterMarket({
         throw new Error(payload.error ?? "No se pudo cargar el Upgrader.");
       }
 
-      setWonCards((current) => {
-        const history = current.filter(
-          (item) => item.status !== "owned" && item.status !== "waiting_stock",
-        );
-        return [...(payload.inventory ?? []), ...history];
-      });
+      if (session) {
+        setWonCards((current) => {
+          const history = current.filter(
+            (item) => item.status !== "owned" && item.status !== "waiting_stock",
+          );
+          return [...(payload.inventory ?? []), ...history];
+        });
+      }
       setUpgraderTargets(payload.targets ?? []);
     } catch (error) {
       setWonCardsMessageTone("error");
@@ -1803,7 +1802,7 @@ export function BoosterMarket({
   }, [loadWonCards, session]);
 
   useEffect(() => {
-    if (!session || view !== "upgrader") {
+    if (view !== "upgrader") {
       return;
     }
 
@@ -1965,9 +1964,11 @@ export function BoosterMarket({
   );
   const draftExpectedValue = packExpectedValue({ items: draftItems });
   const draftMargin = draftPrice - draftExpectedValue;
-  const ownedWonCards = wonCards.filter(
-    (item) => item.status === "owned" || item.status === "waiting_stock",
-  );
+  const ownedWonCards = session
+    ? wonCards.filter(
+        (item) => item.status === "owned" || item.status === "waiting_stock",
+      )
+    : [];
   const ownedWonCardsValue = ownedWonCards.reduce(
     (total, item) => total + Math.max(0, item.valueUsd),
     0,
@@ -5672,8 +5673,28 @@ export function BoosterMarket({
         </p>
       </div>
 
-      {session ? (
-        <>
+      {!session && (
+        <div className="upgrader-guest-notice">
+          <div>
+            <span className="eyebrow">Modo demostración</span>
+            <strong>Iniciá sesión para apostar tus premios</strong>
+            <p>Podés explorar los objetivos y ver cómo funciona la ruleta.</p>
+          </div>
+          <button
+            className="primary-action compact"
+            onClick={() => {
+              setAuthMode("login");
+              setHomeAuthOpen(true);
+            }}
+            type="button"
+          >
+            <LogIn size={17} aria-hidden />
+            Entrar
+          </button>
+        </div>
+      )}
+
+      <>
           <div className="upgrader-layout">
             <section className="upgrader-panel upgrader-stake-panel">
               <div className="upgrader-panel-heading">
@@ -5683,7 +5704,7 @@ export function BoosterMarket({
                 </div>
                 <small>{upgraderStakeCards.length}/20 elegidos</small>
               </div>
-              <div className={`upgrader-selection-card stake-selection${upgraderStakeCards.length ? " filled" : ""}`}>
+              <div className={`upgrader-selection-card selection-tray${upgraderStakeCards.length ? " filled" : ""}`}>
                 <div className="upgrader-selection-copy">
                   <small>Premios seleccionados</small>
                   <strong>
@@ -5719,8 +5740,9 @@ export function BoosterMarket({
                     ))}
                   </div>
                 ) : (
-                  <div className="upgrader-selection-placeholder" aria-hidden>
+                  <div className="upgrader-selection-empty" aria-hidden>
                     <Trophy size={28} />
+                    <span>Tus premios aparecerán acá</span>
                   </div>
                 )}
               </div>
@@ -5754,9 +5776,15 @@ export function BoosterMarket({
                 ) : (
                   <div className="upgrader-empty">
                     <Trophy size={28} aria-hidden />
-                    <strong>No tenés premios activos</strong>
-                    <p>Abrí una caja para conseguir tu primer premio.</p>
-                    <Link href="/">Ver cajas</Link>
+                    <strong>
+                      {session ? "No tenés premios activos" : "Tu inventario aparecerá acá"}
+                    </strong>
+                    <p>
+                      {session
+                        ? "Abrí una caja para conseguir tu primer premio."
+                        : "Iniciá sesión para elegir los premios que querés apostar."}
+                    </p>
+                    {session && <Link href="/">Ver cajas</Link>}
                   </div>
                 )}
               </div>
@@ -5803,7 +5831,7 @@ export function BoosterMarket({
                 {[1.5, 2, 5, 10].map((multiplier) => (
                   <button
                     className={upgraderPreset === multiplier ? "active" : ""}
-                    disabled={upgraderPlaying}
+                    disabled={!session || upgraderPlaying}
                     key={multiplier}
                     onClick={() => chooseUpgraderPreset(multiplier)}
                     type="button"
@@ -5816,6 +5844,7 @@ export function BoosterMarket({
                 className="primary-action upgrader-play"
                 disabled={
                   upgraderPlaying ||
+                  !session ||
                   !upgraderStakeIds.length ||
                   !upgraderTarget ||
                   upgraderChance <= 0
@@ -5839,12 +5868,24 @@ export function BoosterMarket({
                 </div>
                 <small>{filteredUpgraderTargets.length} disponibles</small>
               </div>
-              <div className={`upgrader-selection-card${upgraderTarget ? " filled" : ""}`}>
-                <div className="upgrader-selection-images single">
-                  {upgraderTarget ? (
+              <div className={`upgrader-selection-card selection-tray${upgraderTarget ? " filled" : ""}`}>
+                <div className="upgrader-selection-copy">
+                  <small>Premio que podés ganar</small>
+                  <strong>
+                    {upgraderTarget?.card.name ?? "Elegí un premio objetivo"}
+                  </strong>
+                  <span>
+                    {upgraderTarget
+                      ? formatUsd.format(upgraderTargetValue)
+                      : "Tu objetivo aparecerá acá"}
+                  </span>
+                </div>
+                {upgraderTarget ? (
+                  <div className="upgrader-target-selection-row">
+                    <div className="upgrader-selection-strip target-strip">
                     <button
                       aria-label={`Quitar ${upgraderTarget.card.name} como objetivo`}
-                      className="upgrader-target-preview"
+                      className="upgrader-selection-thumb"
                       disabled={upgraderPlaying}
                       onClick={() => {
                         setUpgraderOutcome(null);
@@ -5860,21 +5901,7 @@ export function BoosterMarket({
                       />
                       <span aria-hidden><X size={13} /></span>
                     </button>
-                  ) : (
-                    <Sparkles size={28} aria-hidden />
-                  )}
-                </div>
-                <div className="upgrader-selection-copy">
-                  <small>Premio que podés ganar</small>
-                  <strong>
-                    {upgraderTarget?.card.name ?? "Elegí un premio objetivo"}
-                  </strong>
-                  <span>
-                    {upgraderTarget
-                      ? formatUsd.format(upgraderTargetValue)
-                      : "Tu objetivo aparecerá acá"}
-                  </span>
-                  {upgraderTarget && (
+                    </div>
                     <div className="upgrader-target-quantity">
                       <small>Cantidad</small>
                       <div>
@@ -5928,8 +5955,13 @@ export function BoosterMarket({
                       </div>
                       <em>Máximo disponible: {upgraderTargetMaxQuantity}</em>
                     </div>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <div className="upgrader-selection-empty" aria-hidden>
+                    <Sparkles size={28} />
+                    <span>El premio aparecerá acá</span>
+                  </div>
+                )}
               </div>
               <div className="upgrader-target-tools">
                 <div className="stock-type-tabs" aria-label="Filtrar objetivos por juego">
@@ -6074,24 +6106,7 @@ export function BoosterMarket({
               )}
             </article>
           )}
-        </>
-      ) : (
-        <div className="login-panel upgrader-login">
-          <span className="eyebrow">Sesión requerida</span>
-          <h3>Entrá para usar tus premios en el Upgrader</h3>
-          <button
-            className="primary-action compact"
-            onClick={() => {
-              setAuthMode("login");
-              setHomeAuthOpen(true);
-            }}
-            type="button"
-          >
-            <LogIn size={17} aria-hidden />
-            Entrar
-          </button>
-        </div>
-      )}
+      </>
     </section>
   );
 
