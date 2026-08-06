@@ -8322,6 +8322,45 @@ a:has(> .material-icon) {
   justify-content: center;
 }
 
+.upgrader-price-filters {
+  display: grid;
+  gap: 9px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.upgrader-price-filters label {
+  color: #999aa8;
+  display: grid;
+  font-size: 0.69rem;
+  font-weight: 700;
+  gap: 6px;
+}
+
+.upgrader-price-filters input {
+  appearance: textfield;
+  background: #22232d;
+  border: 1px solid #30323e;
+  border-radius: 7px;
+  color: #f3f3f7;
+  font-size: 0.82rem;
+  height: 42px;
+  min-width: 0;
+  outline: none;
+  padding: 0 11px;
+  width: 100%;
+}
+
+.upgrader-price-filters input::-webkit-inner-spin-button,
+.upgrader-price-filters input::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.upgrader-price-filters input:focus {
+  border-color: #765fe0;
+  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.12);
+}
+
 .upgrader-search {
   align-items: center;
   background: #22232d;

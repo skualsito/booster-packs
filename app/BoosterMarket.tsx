@@ -1170,6 +1170,8 @@ export function BoosterMarket({
   const [upgraderQuery, setUpgraderQuery] = useState("");
   const [upgraderGame, setUpgraderGame] = useState<PackGame>("mixed");
   const [upgraderPreset, setUpgraderPreset] = useState<number | null>(null);
+  const [upgraderMinPrice, setUpgraderMinPrice] = useState("");
+  const [upgraderMaxPrice, setUpgraderMaxPrice] = useState("");
   const [upgraderLoading, setUpgraderLoading] = useState(false);
   const [upgraderPlaying, setUpgraderPlaying] = useState(false);
   const [upgraderRotation, setUpgraderRotation] = useState(0);
@@ -1961,6 +1963,31 @@ export function BoosterMarket({
     upgraderStakeValue > 0 && upgraderTargetValue > 0
       ? upgraderTargetValue / upgraderStakeValue
       : 0;
+  const parsedUpgraderMinPrice = Number(upgraderMinPrice);
+  const parsedUpgraderMaxPrice = Number(upgraderMaxPrice);
+  const effectiveUpgraderMinPrice =
+    upgraderMinPrice.trim() && Number.isFinite(parsedUpgraderMinPrice)
+      ? Math.max(0, parsedUpgraderMinPrice)
+      : 0;
+  const effectiveUpgraderMaxPrice =
+    upgraderMaxPrice.trim() && Number.isFinite(parsedUpgraderMaxPrice)
+      ? Math.max(0, parsedUpgraderMaxPrice)
+      : Number.POSITIVE_INFINITY;
+
+  useEffect(() => {
+    if (upgraderPreset === null) {
+      return;
+    }
+
+    setUpgraderMinPrice(
+      upgraderStakeValue > 0
+        ? String(Number((upgraderStakeValue * upgraderPreset).toFixed(2)))
+        : "",
+    );
+    setUpgraderMaxPrice("");
+    setUpgraderTargetId(null);
+  }, [upgraderPreset, upgraderStakeValue]);
+
   const filteredUpgraderTargets = upgraderTargets.filter((item) => {
     const price = Number(item.card.priceUsd ?? 0);
     const repeatsStake = upgraderStakeCards.some(
@@ -1977,7 +2004,14 @@ export function BoosterMarket({
       item.card.name.toLocaleLowerCase("es").includes(query) ||
       item.card.setName.toLocaleLowerCase("es").includes(query);
 
-    return !repeatsStake && price > upgraderStakeValue && gameMatches && queryMatches;
+    return (
+      !repeatsStake &&
+      price > upgraderStakeValue &&
+      price >= effectiveUpgraderMinPrice &&
+      price <= effectiveUpgraderMaxPrice &&
+      gameMatches &&
+      queryMatches
+    );
   });
   const visibleInventoryCards = wonCards
     .filter(
@@ -2902,7 +2936,6 @@ export function BoosterMarket({
     }
 
     setUpgraderOutcome(null);
-    setUpgraderPreset(null);
     setUpgraderStakeIds((current) => {
       if (current.includes(cardId)) {
         return current.filter((id) => id !== cardId);
@@ -2925,32 +2958,12 @@ export function BoosterMarket({
       return;
     }
 
-    const desiredValue = upgraderStakeValue * multiplier;
-    const availableTargets = upgraderTargets
-      .filter((item) => {
-        const price = Number(item.card.priceUsd ?? 0);
-        const repeatsStake = upgraderStakeCards.some(
-          (stake) =>
-            stake.card.id === item.card.id &&
-            stake.card.game === item.card.game &&
-            itemTypeOf(stake.card) === itemTypeOf(item.card),
-        );
-        return !repeatsStake && price > upgraderStakeValue;
-      })
-      .sort(
-        (left, right) =>
-          Math.abs(Number(left.card.priceUsd ?? 0) - desiredValue) -
-          Math.abs(Number(right.card.priceUsd ?? 0) - desiredValue),
-      );
-
-    if (!availableTargets.length) {
-      setWonCardsMessageTone("warning");
-      setWonCardsMessage("No hay un premio más caro disponible para esa apuesta.");
-      return;
-    }
-
     setUpgraderPreset(multiplier);
-    setUpgraderTargetId(availableTargets[0].id);
+    setUpgraderMinPrice(
+      String(Number((upgraderStakeValue * multiplier).toFixed(2))),
+    );
+    setUpgraderMaxPrice("");
+    setUpgraderTargetId(null);
     setUpgraderOutcome(null);
   };
 
@@ -3006,6 +3019,8 @@ export function BoosterMarket({
         setUpgraderStakeIds([]);
         setUpgraderTargetId(null);
         setUpgraderPreset(null);
+        setUpgraderMinPrice("");
+        setUpgraderMaxPrice("");
         setWonCardsMessageTone(payload.won ? "success" : "warning");
         setWonCardsMessage(
           payload.won
@@ -5761,6 +5776,40 @@ export function BoosterMarket({
                     value={upgraderQuery}
                   />
                 </label>
+                <div className="upgrader-price-filters">
+                  <label>
+                    <span>Precio mínimo</span>
+                    <input
+                      inputMode="decimal"
+                      min="0"
+                      onChange={(event) => {
+                        setUpgraderPreset(null);
+                        setUpgraderTargetId(null);
+                        setUpgraderMinPrice(event.target.value);
+                      }}
+                      placeholder="0"
+                      step="0.01"
+                      type="number"
+                      value={upgraderMinPrice}
+                    />
+                  </label>
+                  <label>
+                    <span>Precio máximo</span>
+                    <input
+                      inputMode="decimal"
+                      min="0"
+                      onChange={(event) => {
+                        setUpgraderPreset(null);
+                        setUpgraderTargetId(null);
+                        setUpgraderMaxPrice(event.target.value);
+                      }}
+                      placeholder="Sin límite"
+                      step="0.01"
+                      type="number"
+                      value={upgraderMaxPrice}
+                    />
+                  </label>
+                </div>
               </div>
               <div className="upgrader-item-list">
                 {upgraderLoading ? (
@@ -5779,7 +5828,6 @@ export function BoosterMarket({
                         key={item.id}
                         onClick={() => {
                           setUpgraderOutcome(null);
-                          setUpgraderPreset(null);
                           setUpgraderTargetId(item.id);
                         }}
                         type="button"
