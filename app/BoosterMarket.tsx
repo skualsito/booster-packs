@@ -2324,12 +2324,7 @@ export function BoosterMarket({
 
       const auth: SessionAuth = {
         token: payload.token,
-        id: payload.user.id,
-        username: payload.user.username,
-        role: payload.user.role,
-        displayName: payload.user.displayName,
-        email: payload.user.email,
-        balanceUsd: payload.user.balanceUsd,
+        ...payload.user,
       };
 
       storeSession(auth);
