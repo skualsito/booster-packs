@@ -8401,7 +8401,6 @@ a:has(> .material-icon) {
   --upgrade-chance: 0%;
   align-items: center;
   background: conic-gradient(
-    from -90deg,
     #7c5cff 0 var(--upgrade-chance),
     #272934 var(--upgrade-chance) 100%
   );
