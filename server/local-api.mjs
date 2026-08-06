@@ -91,7 +91,7 @@ async function getPool() {
   );
   await setupConnection.end();
 
-  pool = mysql.createPool({
+  const nextPool = mysql.createPool({
     host: config.mysqlHost,
     port: config.mysqlPort,
     user: config.mysqlUser,
@@ -102,8 +102,14 @@ async function getPool() {
     timezone: "Z",
   });
 
-  await migrate(pool);
-  await seedAdmin(pool);
+  try {
+    await migrate(nextPool);
+    await seedAdmin(nextPool);
+    pool = nextPool;
+  } catch (error) {
+    await nextPool.end();
+    throw error;
+  }
 
   return pool;
 }
@@ -285,6 +291,16 @@ async function migrate(connectionPool) {
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
   `);
 
+  try {
+    await connectionPool.query(
+      "ALTER TABLE upgrader_runs ADD COLUMN target_quantity INT NOT NULL DEFAULT 1 AFTER target_card_json",
+    );
+  } catch (error) {
+    if (error?.code !== "ER_DUP_FIELDNAME") {
+      throw error;
+    }
+  }
+
   await connectionPool.query(`
     CREATE TABLE IF NOT EXISTS changer_runs (
       id VARCHAR(80) PRIMARY KEY,
@@ -383,10 +399,6 @@ async function migrateExistingTables(connectionPool) {
     [
       "ALTER TABLE booster_packs ADD INDEX booster_packs_shop_slug_idx (shop_slug)",
       ["ER_DUP_KEYNAME"],
-    ],
-    [
-      "ALTER TABLE upgrader_runs ADD COLUMN target_quantity INT NOT NULL DEFAULT 1 AFTER target_card_json",
-      ["ER_DUP_FIELDNAME"],
     ],
   ];
 
@@ -2670,9 +2682,17 @@ const server = createServer((request, response) => {
   });
 });
 
-server.listen(config.port, config.host, () => {
-  console.log(`Pullario API listo en http://${config.host}:${config.port}`);
-});
+await getPool();
+
+if (process.argv.includes("--migrate-only")) {
+  console.log("Migraciones de Pullario completadas.");
+  await pool.end();
+  pool = undefined;
+} else {
+  server.listen(config.port, config.host, () => {
+    console.log(`Pullario API listo en http://${config.host}:${config.port}`);
+  });
+}
 
 process.on("SIGINT", async () => {
   if (pool) {

@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "vinext dev --port 3003",
     "api": "node server/local-api.mjs",
+    "db:migrate": "node server/local-api.mjs --migrate-only",
     "build": "vinext build",
     "start": "vinext start --port 3003",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
