@@ -3555,16 +3555,7 @@ export function BoosterMarket({
           {celebratingRunId === visibleRouletteRunId &&
             visibleRouletteResult && (
               <div className="hit-celebration" role="status">
-                <div className="hit-celebration-badge">
-                  <Sparkles size={20} aria-hidden />
-                  <strong>HIT</strong>
-                  <small>
-                    {formatPercent.format(
-                      normalizedProbability(visibleRouletteResult, selectedPack),
-                    )}
-                    %
-                  </small>
-                </div>
+                <span className="sr-only">Conseguiste un premio destacado.</span>
                 {HIT_CELEBRATION_PIECES.map((piece, index) => (
                   <i
                     aria-hidden

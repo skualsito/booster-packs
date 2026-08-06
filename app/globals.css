@@ -2234,37 +2234,6 @@ button:disabled {
   z-index: 20;
 }
 
-.hit-celebration-badge {
-  align-items: center;
-  animation: hit-badge-pop 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  background: #f7f3e9;
-  border: 3px solid #ffcf4a;
-  border-radius: 8px;
-  color: #151515;
-  display: grid;
-  gap: 3px;
-  grid-template-columns: auto auto;
-  left: 50%;
-  min-width: 128px;
-  padding: 10px 15px;
-  position: absolute;
-  text-align: center;
-  top: 150px;
-  transform: translateX(-50%);
-  z-index: 2;
-}
-
-.hit-celebration-badge strong {
-  font-size: 1.25rem;
-  letter-spacing: 0;
-}
-
-.hit-celebration-badge small {
-  grid-column: 1 / -1;
-  font-size: 0.72rem;
-  font-weight: 800;
-}
-
 .hit-celebration > i {
   animation: hit-confetti-fall 1900ms cubic-bezier(0.18, 0.7, 0.3, 1) var(--piece-delay) both;
   background: var(--piece-color);
@@ -2274,21 +2243,6 @@ button:disabled {
   top: 105px;
   transform: rotate(var(--piece-rotation));
   width: 7px;
-}
-
-@keyframes hit-badge-pop {
-  0% {
-    opacity: 0;
-    transform: translateX(-50%) scale(0.55);
-  }
-  58% {
-    opacity: 1;
-    transform: translateX(-50%) scale(1.08);
-  }
-  100% {
-    opacity: 1;
-    transform: translateX(-50%) scale(1);
-  }
 }
 
 @keyframes hit-confetti-fall {
