@@ -1169,6 +1169,7 @@ export function BoosterMarket({
   const [upgraderTargetId, setUpgraderTargetId] = useState<number | null>(null);
   const [upgraderQuery, setUpgraderQuery] = useState("");
   const [upgraderGame, setUpgraderGame] = useState<PackGame>("mixed");
+  const [upgraderPreset, setUpgraderPreset] = useState<number | null>(null);
   const [upgraderLoading, setUpgraderLoading] = useState(false);
   const [upgraderPlaying, setUpgraderPlaying] = useState(false);
   const [upgraderRotation, setUpgraderRotation] = useState(0);
@@ -1952,7 +1953,7 @@ export function BoosterMarket({
   const upgraderChance =
     upgraderStakeValue > 0 && upgraderTargetValue > upgraderStakeValue
       ? Math.min(
-          90,
+          80,
           (upgraderStakeValue / upgraderTargetValue) * 100 * 0.9,
         )
       : 0;
@@ -2901,6 +2902,7 @@ export function BoosterMarket({
     }
 
     setUpgraderOutcome(null);
+    setUpgraderPreset(null);
     setUpgraderStakeIds((current) => {
       if (current.includes(cardId)) {
         return current.filter((id) => id !== cardId);
@@ -2914,6 +2916,42 @@ export function BoosterMarket({
 
       return [...current, cardId];
     });
+  };
+
+  const chooseUpgraderPreset = (multiplier: number) => {
+    if (!upgraderStakeValue) {
+      setWonCardsMessageTone("warning");
+      setWonCardsMessage("Primero elegí uno o más premios para apostar.");
+      return;
+    }
+
+    const desiredValue = upgraderStakeValue * multiplier;
+    const availableTargets = upgraderTargets
+      .filter((item) => {
+        const price = Number(item.card.priceUsd ?? 0);
+        const repeatsStake = upgraderStakeCards.some(
+          (stake) =>
+            stake.card.id === item.card.id &&
+            stake.card.game === item.card.game &&
+            itemTypeOf(stake.card) === itemTypeOf(item.card),
+        );
+        return !repeatsStake && price > upgraderStakeValue;
+      })
+      .sort(
+        (left, right) =>
+          Math.abs(Number(left.card.priceUsd ?? 0) - desiredValue) -
+          Math.abs(Number(right.card.priceUsd ?? 0) - desiredValue),
+      );
+
+    if (!availableTargets.length) {
+      setWonCardsMessageTone("warning");
+      setWonCardsMessage("No hay un premio más caro disponible para esa apuesta.");
+      return;
+    }
+
+    setUpgraderPreset(multiplier);
+    setUpgraderTargetId(availableTargets[0].id);
+    setUpgraderOutcome(null);
   };
 
   const playUpgrader = async () => {
@@ -2967,6 +3005,7 @@ export function BoosterMarket({
         setUpgraderPlaying(false);
         setUpgraderStakeIds([]);
         setUpgraderTargetId(null);
+        setUpgraderPreset(null);
         setWonCardsMessageTone(payload.won ? "success" : "warning");
         setWonCardsMessage(
           payload.won
@@ -5652,7 +5691,20 @@ export function BoosterMarket({
               </div>
               <div className="upgrader-multiplier">
                 <span>{upgraderMultiplier ? `${upgraderMultiplier.toFixed(2)}x` : "0.00x"}</span>
-                <small>Retorno teórico 90%</small>
+                <small>Retorno teórico 90% · máximo 80%</small>
+              </div>
+              <div className="upgrader-presets" aria-label="Objetivos rápidos">
+                {[1.5, 2, 5, 10].map((multiplier) => (
+                  <button
+                    className={upgraderPreset === multiplier ? "active" : ""}
+                    disabled={upgraderPlaying}
+                    key={multiplier}
+                    onClick={() => chooseUpgraderPreset(multiplier)}
+                    type="button"
+                  >
+                    {multiplier}x
+                  </button>
+                ))}
               </div>
               <button
                 className="primary-action upgrader-play"
@@ -5727,6 +5779,7 @@ export function BoosterMarket({
                         key={item.id}
                         onClick={() => {
                           setUpgraderOutcome(null);
+                          setUpgraderPreset(null);
                           setUpgraderTargetId(item.id);
                         }}
                         type="button"

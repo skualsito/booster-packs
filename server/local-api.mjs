@@ -632,7 +632,7 @@ function publicUserCard(row) {
 }
 
 const UPGRADER_RTP = 0.9;
-const UPGRADER_MAX_CHANCE = 90;
+const UPGRADER_MAX_CHANCE = 80;
 
 function upgraderChance(stakeValue, targetValue) {
   if (stakeValue <= 0 || targetValue <= stakeValue) {
