@@ -42,3 +42,9 @@ Local pages:
 npm run lint
 npm test
 ```
+
+## Production
+
+Production templates for PM2, environment variables, and Nginx are available in
+`ecosystem.config.cjs` and `deploy/`. Set `.env.local` before running the build,
+because `NEXT_PUBLIC_LOCAL_API_URL` is embedded in the frontend bundle.

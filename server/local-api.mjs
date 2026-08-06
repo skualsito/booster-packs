@@ -18,7 +18,12 @@ const sessions = new Map();
 loadEnvFile(ENV_PATH);
 
 const config = {
+  host: process.env.LOCAL_API_HOST ?? "127.0.0.1",
   port: Number(process.env.LOCAL_API_PORT ?? 3004),
+  corsAllowedOrigins: (process.env.CORS_ALLOWED_ORIGINS ?? "http://localhost:3003")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
   mysqlHost: process.env.MYSQL_HOST ?? "127.0.0.1",
   mysqlPort: Number(process.env.MYSQL_PORT ?? 3306),
   mysqlUser: process.env.MYSQL_USER ?? "root",
@@ -461,8 +466,14 @@ function verifyPassword(password, salt, expectedHash) {
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
-function setCorsHeaders(response) {
-  response.setHeader("Access-Control-Allow-Origin", "*");
+function setCorsHeaders(request, response) {
+  const origin = request.headers.origin;
+
+  if (origin && config.corsAllowedOrigins.includes(origin)) {
+    response.setHeader("Access-Control-Allow-Origin", origin);
+    response.setHeader("Vary", "Origin");
+  }
+
   response.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   response.setHeader(
     "Access-Control-Allow-Headers",
@@ -2273,7 +2284,7 @@ async function withdrawUserCard(session, cardId) {
 }
 
 async function handleRequest(request, response) {
-  setCorsHeaders(response);
+  setCorsHeaders(request, response);
 
   if (request.method === "OPTIONS") {
     response.statusCode = 204;
@@ -2649,7 +2660,7 @@ async function handleRequest(request, response) {
 
 const server = createServer((request, response) => {
   handleRequest(request, response).catch((error) => {
-    setCorsHeaders(response);
+    setCorsHeaders(request, response);
     sendJson(response, error.status ?? 500, {
       error:
         error instanceof Error
@@ -2659,8 +2670,8 @@ const server = createServer((request, response) => {
   });
 });
 
-server.listen(config.port, () => {
-  console.log(`Pullario local API listo en http://localhost:${config.port}`);
+server.listen(config.port, config.host, () => {
+  console.log(`Pullario API listo en http://${config.host}:${config.port}`);
 });
 
 process.on("SIGINT", async () => {

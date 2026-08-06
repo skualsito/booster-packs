@@ -1,0 +1,5 @@
+
+> pullario-tcg-boosters@0.1.0 api
+> node server/local-api.mjs
+
+Pullario local API listo en http://localhost:3004
