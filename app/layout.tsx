@@ -25,7 +25,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const protocol =
     requestHeaders.get("x-forwarded-proto") ??
     (host?.startsWith("localhost") ? "http" : "https");
-  const baseUrl = host ? `${protocol}://${host}` : "http://localhost:3000";
+  const baseUrl = host ? `${protocol}://${host}` : "http://localhost:3003";
 
   return {
     applicationName: siteName,

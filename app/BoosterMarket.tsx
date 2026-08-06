@@ -364,7 +364,7 @@ type RouletteState = {
 const AUTH_STORAGE_KEY = "pullario-session-v1";
 const LEGACY_AUTH_STORAGE_KEY = "hitshelf-session-v1";
 const LOCAL_API_BASE = (
-  process.env.NEXT_PUBLIC_LOCAL_API_URL || "http://localhost:4000"
+  process.env.NEXT_PUBLIC_LOCAL_API_URL || "http://localhost:3004"
 ).replace(/\/$/, "");
 const ROULETTE_CARD_WIDTH = 164;
 const ROULETTE_GAP = 10;
@@ -1960,7 +1960,11 @@ export function BoosterMarket({
         window.cancelAnimationFrame(upgraderTickFrameRef.current);
       }
       if (audioContextRef.current) {
-        void audioContextRef.current.close();
+        const audioContext = audioContextRef.current;
+        audioContextRef.current = null;
+        if (audioContext.state !== "closed") {
+          void audioContext.close();
+        }
       }
     };
   }, []);

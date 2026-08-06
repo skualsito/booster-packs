@@ -18,7 +18,7 @@ const sessions = new Map();
 loadEnvFile(ENV_PATH);
 
 const config = {
-  port: Number(process.env.LOCAL_API_PORT ?? 4000),
+  port: Number(process.env.LOCAL_API_PORT ?? 3004),
   mysqlHost: process.env.MYSQL_HOST ?? "127.0.0.1",
   mysqlPort: Number(process.env.MYSQL_PORT ?? 3306),
   mysqlUser: process.env.MYSQL_USER ?? "root",

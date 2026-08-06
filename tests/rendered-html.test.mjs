@@ -85,15 +85,15 @@ test("server-renders dedicated pages", async () => {
 test("serves SEO metadata routes", async () => {
   const robots = await render("/robots.txt");
   assert.equal(robots.status, 200);
-  assert.match(await robots.text(), /Sitemap: http:\/\/localhost:3000\/sitemap\.xml/);
+  assert.match(await robots.text(), /Sitemap: http:\/\/localhost:3003\/sitemap\.xml/);
 
   const sitemap = await render("/sitemap.xml");
   assert.equal(sitemap.status, 200);
   const sitemapXml = await sitemap.text();
-  assert.match(sitemapXml, /<loc>http:\/\/localhost:3000\/<\/loc>/);
-  assert.match(sitemapXml, /<loc>http:\/\/localhost:3000\/cards<\/loc>/);
-  assert.match(sitemapXml, /<loc>http:\/\/localhost:3000\/upgrader<\/loc>/);
-  assert.match(sitemapXml, /<loc>http:\/\/localhost:3000\/changer<\/loc>/);
+  assert.match(sitemapXml, /<loc>http:\/\/localhost:3003\/<\/loc>/);
+  assert.match(sitemapXml, /<loc>http:\/\/localhost:3003\/cards<\/loc>/);
+  assert.match(sitemapXml, /<loc>http:\/\/localhost:3003\/upgrader<\/loc>/);
+  assert.match(sitemapXml, /<loc>http:\/\/localhost:3003\/changer<\/loc>/);
 
   const manifest = await render("/manifest.webmanifest");
   assert.equal(manifest.status, 200);

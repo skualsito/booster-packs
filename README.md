@@ -24,7 +24,7 @@ npm run api
 
 Copy `.env.example` to `.env.local` and fill `MYSQL_*`, `ADMIN_USERNAME`, and
 `ADMIN_PASSWORD`. The frontend uses `NEXT_PUBLIC_LOCAL_API_URL` to reach the
-local API, defaulting to `http://localhost:4000`. When you choose the public
+local API, defaulting to `http://localhost:3004`. When you choose the public
 domain, set `NEXT_PUBLIC_SITE_URL` so SEO files such as `sitemap.xml` and
 `robots.txt` use the final URL.
 
