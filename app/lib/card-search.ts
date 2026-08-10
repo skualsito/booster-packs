@@ -132,6 +132,7 @@ type YuyuteiPriceEntry = {
 };
 
 type OnePieceJapaneseRawCard = {
+  acquisitionInfo: string;
   id: string;
   image: string;
   name: string;
@@ -2358,23 +2359,76 @@ function mapOnePieceCard(item: unknown): ExternalCard | undefined {
   };
 }
 
-const yuyuteiVariantScore = (entry: YuyuteiPriceEntry, printId: string) => {
-  const isParallel =
-    entry.name.includes("\u30d1\u30e9\u30ec\u30eb") || /\bP[-/]/i.test(entry.name);
-  const isPromo =
-    entry.name.includes("\u4e00\u756a\u304f\u3058") ||
-    entry.href?.includes("promo") === true;
-  const suffix = printId.match(/_p(\d+)$/i)?.[1];
+const longestCommonSubstringLength = (left: string, right: string) => {
+  const normalizeProductDescription = (value: string) =>
+    value
+      .normalize("NFKC")
+      .toLowerCase()
+      .replace(/[a-z0-9\s]+/g, "")
+      .replace(/[()（）「」『』・/.,‐-]+/g, "");
+  const normalizedLeft = normalizeProductDescription(left);
+  const normalizedRight = normalizeProductDescription(right);
+  let previous = new Array<number>(normalizedRight.length + 1).fill(0);
+  let longest = 0;
 
-  if (!suffix) {
-    return !isParallel && !isPromo ? 0 : isParallel ? 40 : 60;
+  for (let leftIndex = 1; leftIndex <= normalizedLeft.length; leftIndex += 1) {
+    const current = new Array<number>(normalizedRight.length + 1).fill(0);
+
+    for (
+      let rightIndex = 1;
+      rightIndex <= normalizedRight.length;
+      rightIndex += 1
+    ) {
+      if (normalizedLeft[leftIndex - 1] === normalizedRight[rightIndex - 1]) {
+        current[rightIndex] = previous[rightIndex - 1] + 1;
+        longest = Math.max(longest, current[rightIndex]);
+      }
+    }
+
+    previous = current;
   }
 
-  if (suffix === "1") {
-    return isPromo ? 0 : isParallel ? 20 : 50;
+  return longest;
+};
+
+const matchYuyuteiOnePieceEntry = (
+  entries: YuyuteiPriceEntry[],
+  printId: string,
+  acquisitionInfo: string,
+) => {
+  if (entries.length === 1) {
+    return entries[0];
   }
 
-  return isParallel && !isPromo ? 0 : isParallel ? 10 : 50;
+  const hasVariantSuffix = /_[a-z]\d+$/i.test(printId);
+
+  if (!hasVariantSuffix) {
+    const standardEntries = entries.filter(
+      (entry) =>
+        !entry.name.includes("パラレル") &&
+        !entry.href?.includes("/promo-"),
+    );
+    return standardEntries.length === 1 ? standardEntries[0] : undefined;
+  }
+
+  if (!acquisitionInfo) {
+    return undefined;
+  }
+
+  const candidates = entries
+    .map((entry) => ({
+      entry,
+      score: longestCommonSubstringLength(acquisitionInfo, entry.name),
+    }))
+    .sort((left, right) => right.score - left.score);
+  const best = candidates[0];
+  const runnerUp = candidates[1];
+
+  if (!best || best.score < 6 || (runnerUp && best.score - runnerUp.score < 2)) {
+    return undefined;
+  }
+
+  return best.entry;
 };
 
 const parseYuyuteiOnePiecePrices = (html: string, code: string) => {
@@ -2463,14 +2517,16 @@ async function getYuyuteiOnePiecePrices(code: string) {
   return entries;
 }
 
-async function getYuyuteiOnePiecePrice(printId: string) {
+async function getYuyuteiOnePiecePrice(
+  printId: string,
+  acquisitionInfo: string,
+) {
   const entries = await getYuyuteiOnePiecePrices(printId);
-  const bestEntry = entries
-    .slice()
-    .sort(
-      (a, b) =>
-        yuyuteiVariantScore(a, printId) - yuyuteiVariantScore(b, printId),
-    )[0];
+  const bestEntry = matchYuyuteiOnePieceEntry(
+    entries,
+    printId,
+    acquisitionInfo,
+  );
 
   if (!bestEntry) {
     return undefined;
@@ -2524,7 +2580,7 @@ async function searchOnePieceJapanese(
 
   const matches = Array.from(
     html.matchAll(
-      /<dl class="modalCol" id="([^"]+)">[\s\S]*?<div class="infoCol">\s*<span>([^<]+)<\/span>\s*\|\s*<span>([^<]+)<\/span>\s*\|\s*<span>([^<]+)<\/span>[\s\S]*?<div class="cardName">([^<]+)<\/div>[\s\S]*?<img class="lazy" src="\/images\/cardlist\/dummy.gif" data-src="([^"]+)"/g,
+      /<dl class="modalCol" id="([^"]+)">[\s\S]*?<div class="infoCol">\s*<span>([^<]+)<\/span>\s*\|\s*<span>([^<]+)<\/span>\s*\|\s*<span>([^<]+)<\/span>[\s\S]*?<div class="cardName">([^<]+)<\/div>[\s\S]*?<img class="lazy" src="\/images\/cardlist\/dummy.gif" data-src="([^"]+)"[\s\S]*?<div class="getInfo"><h3>[^<]*<\/h3>([\s\S]*?)<\/div>/g,
     ),
   );
 
@@ -2541,6 +2597,7 @@ async function searchOnePieceJapanese(
       seen.add(id);
 
       return {
+        acquisitionInfo: stripHtml(match[7] ?? ""),
         id,
         number,
         rarity: decodeHtml(match[3] ?? ""),
@@ -2555,7 +2612,10 @@ async function searchOnePieceJapanese(
   const pricedResults = shouldLoadJapanesePrices
     ? await Promise.all(
         rawCards.map((card) =>
-          getYuyuteiOnePiecePrice(card.id).catch(() => undefined),
+          getYuyuteiOnePiecePrice(
+            card.id,
+            card.acquisitionInfo,
+          ).catch(() => undefined),
         ),
       )
     : [];
