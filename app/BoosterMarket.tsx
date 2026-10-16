@@ -3,27 +3,21 @@
 
 import Link from "next/link";
 import type { CSSProperties } from "react";
-import type { CardGame, PrizeItemType } from "./lib/card-search";
 import { AdminDashboardSection } from "./market/admin/AdminDashboardSection";
 import { AdminPacksSection } from "./market/admin/AdminPacksSection";
 import {
   AdminShellHeader,
   SellerRequiredPanel,
-  StockFilterControls,
 } from "./market/admin/AdminShell";
-import { StockItemCard } from "./market/admin/StockItemCard";
+import { AdminStockSection } from "./market/admin/AdminStockSection";
+import { StockEditModal } from "./market/admin/StockEditModal";
 import { AuthModal } from "./market/auth/AuthPanel";
-import {
-  cardImage,
-  handleImageError,
-  localImageUrl,
-} from "./market/card-display";
+import { cardImage, handleImageError } from "./market/card-display";
 import {
   CardsSearchSection,
   SelectedCardModal,
 } from "./market/cards/CardsSearchSection";
 import {
-  cardGames,
   cardStatusLabels,
   gameLabels,
   isSellerRole,
@@ -32,7 +26,6 @@ import {
   prizeTypeLabels,
 } from "./market/catalog";
 import { ChangerSection } from "./market/changer/ChangerSection";
-import { SearchConsole } from "./market/components/SearchConsole";
 import { SortControl } from "./market/components/SortControl";
 import {
   HIT_CELEBRATION_PIECES,
@@ -58,9 +51,7 @@ import {
   Dice5,
   Eye,
   Home,
-  Plus,
   RotateCcw,
-  Save,
   Search,
   Send,
   Sparkles,
@@ -80,13 +71,10 @@ export function BoosterMarket({
   const market = useMarketState({ initialPackId, view });
   const {
     activeShipmentGroups,
-    addCardToStock,
-    addSealedProductToStock,
     adminInventoryActiveOnly,
     adminInventoryMaxPrice,
     adminInventoryMinPrice,
     adminInventorySort,
-    adminSearch,
     adminUserQuery,
     adminUsers,
     adminUsersLoading,
@@ -96,7 +84,6 @@ export function BoosterMarket({
     apiStatus,
     authMessage,
     celebratingRunId,
-    filteredShopStock,
     groupedShopOrders,
     idleRouletteItems,
     loadAdminUserCards,
@@ -104,8 +91,6 @@ export function BoosterMarket({
     loadDbPacks,
     loadShopOrders,
     loadShopShipments,
-    loadShopStock,
-    manualSealedOpen,
     markSelectedOrdersShipped,
     markShipmentReceived,
     openingPack,
@@ -114,20 +99,6 @@ export function BoosterMarket({
     recentDrops,
     recentDropsLoading,
     rouletteTrackRef,
-    runSearch,
-    saveStockDetails,
-    sealedGame,
-    sealedImageUrl,
-    sealedName,
-    sealedPrice,
-    sealedQuantity,
-    sealedQuery,
-    sealedResults,
-    sealedSearchError,
-    sealedSearchLoading,
-    sealedSetName,
-    sealedType,
-    searchSealedProducts,
     selectedAdminUser,
     selectedPack,
     selectedPackExists,
@@ -135,33 +106,17 @@ export function BoosterMarket({
     selectedShipmentsReady,
     selectedShipmentUserId,
     selectedTopItem,
-    selectSealedSearchResult,
     session,
     setAdminInventoryActiveOnly,
     setAdminInventoryMaxPrice,
     setAdminInventoryMinPrice,
     setAdminInventorySort,
-    setAdminSearch,
     setAdminUserQuery,
     setAdminUserView,
-    setManualSealedOpen,
-    setSealedGame,
-    setSealedImageUrl,
-    setSealedName,
-    setSealedPrice,
-    setSealedQuantity,
-    setSealedQuery,
-    setSealedResults,
-    setSealedSearchError,
-    setSealedSetName,
-    setSealedType,
     setSelectedShipmentIds,
     setShipmentTrackingNumber,
     setShipmentView,
     setShippingModalOpen,
-    setStockEditImageUrl,
-    setStockEditor,
-    setStockEditPrice,
     shipmentBusyKey,
     shipmentHistoryGroups,
     shipmentsMessage,
@@ -170,12 +125,6 @@ export function BoosterMarket({
     shippingModalOpen,
     shippingOrders,
     showCardDetails,
-    stockEditError,
-    stockEditImageUrl,
-    stockEditor,
-    stockEditPrice,
-    stockEditSaving,
-    stockMessage,
     toggleShipmentSelection,
     visibleAdminUserCards,
     visibleRouletteItems,
@@ -477,257 +426,6 @@ export function BoosterMarket({
             </button>
           ))}
       </div>
-    </section>
-  );
-
-  const adminStockSection = (
-    <section className="admin-band page-section" aria-label="Stock de Pullario">
-      <AdminShellHeader />
-      {isSellerRole(session?.role) ? (
-        <div className="stock-page-grid">
-          <div className="stock-entry-column">
-            <SearchConsole
-              actionLabel="Stock"
-              onCardAction={(card) => void addCardToStock(card)}
-              onSearch={(override) => runSearch("admin", override)}
-              search={adminSearch}
-              setSearch={setAdminSearch}
-            />
-            <div className="sealed-stock-form">
-              <div className="panel-heading">
-                <div>
-                  <span className="eyebrow">Producto sellado</span>
-                  <h2>Buscar sobre o caja</h2>
-                </div>
-                <Boxes size={22} aria-hidden />
-              </div>
-
-              <div className="sealed-search-bar">
-                <label>
-                  Juego
-                  <select
-                    onChange={(event) => {
-                      setSealedGame(event.target.value as CardGame)
-                      setSealedQuery("");
-                      setSealedResults([]);
-                      setSealedSearchError("");
-                    }}
-                    value={sealedGame}
-                  >
-                    {cardGames.map((game) => (
-                      <option key={game} value={game}>
-                        {gameLabels[game]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Expansion o producto
-                  <input
-                    onChange={(event) => setSealedQuery(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        void searchSealedProducts();
-                      }
-                    }}
-                    placeholder="Ej: Surging Sparks booster box"
-                    value={sealedQuery}
-                  />
-                </label>
-                <button
-                  className="primary-action compact"
-                  disabled={sealedSearchLoading || sealedQuery.trim().length < 2}
-                  onClick={() => void searchSealedProducts()}
-                  type="button"
-                >
-                  <Search size={17} aria-hidden />
-                  {sealedSearchLoading ? "Buscando" : "Buscar"}
-                </button>
-              </div>
-              {sealedSearchLoading && (
-                <div className="sealed-search-loading" role="status">
-                  <span aria-hidden />
-                  Buscando productos y precios
-                </div>
-              )}
-              {sealedSearchError && (
-                <p className="admin-message">{sealedSearchError}</p>
-              )}
-              {sealedResults.length > 0 && (
-                <div className="sealed-search-results">
-                  {sealedResults.map((product) => (
-                    <article key={product.id}>
-                      <img
-                        src={cardImage(product)}
-                        alt=""
-                        onError={handleImageError(product.game, itemTypeOf(product))}
-                      />
-                      <div className="sealed-result-copy">
-                        <span className={`prize-type-chip ${itemTypeOf(product)}`}>
-                          {prizeTypeLabels[itemTypeOf(product)]}
-                        </span>
-                        <strong>{product.name}</strong>
-                        <small>{product.setName}</small>
-                      </div>
-                      <div className="sealed-result-actions">
-                        <b>
-                          {typeof product.priceUsd === "number"
-                            ? formatUsd.format(product.priceUsd)
-                            : "Sin precio"}
-                        </b>
-                        <button
-                          aria-label={`Agregar ${product.name}`}
-                          onClick={() => void selectSealedSearchResult(product)}
-                          type="button"
-                        >
-                          <Plus size={17} aria-hidden />
-                          {typeof product.priceUsd === "number"
-                            ? "Al stock"
-                            : "Completar"}
-                        </button>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
-
-              <details
-                className="manual-sealed-entry"
-                onToggle={(event) =>
-                  setManualSealedOpen(event.currentTarget.open)
-                }
-                open={manualSealedOpen}
-              >
-                <summary>Cargar manualmente</summary>
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void addSealedProductToStock();
-                  }}
-                >
-                  <div className="sealed-form-grid">
-                    <label>
-                      Tipo
-                      <select
-                        onChange={(event) =>
-                          setSealedType(
-                            event.target.value as Exclude<PrizeItemType, "card">,
-                          )
-                        }
-                        value={sealedType}
-                      >
-                        <option value="sealed-pack">Sobre sellado</option>
-                        <option value="sealed-box">Caja sellada</option>
-                      </select>
-                    </label>
-                    <label>
-                      Juego
-                      <select
-                        onChange={(event) =>
-                          setSealedGame(event.target.value as CardGame)
-                        }
-                        value={sealedGame}
-                      >
-                        {cardGames.map((game) => (
-                          <option key={game} value={game}>
-                            {gameLabels[game]}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="wide">
-                      Nombre
-                      <input
-                        onChange={(event) => setSealedName(event.target.value)}
-                        placeholder="Ej: OP-13 Booster Pack"
-                        value={sealedName}
-                      />
-                    </label>
-                    <label className="wide">
-                      Expansion
-                      <input
-                        onChange={(event) => setSealedSetName(event.target.value)}
-                        placeholder="Ej: OP-13 Carrying On His Will"
-                        value={sealedSetName}
-                      />
-                    </label>
-                    <label>
-                      Precio USD
-                      <input
-                        min="0.01"
-                        onChange={(event) =>
-                          setSealedPrice(Number(event.target.value))
-                        }
-                        step="0.01"
-                        type="number"
-                        value={sealedPrice}
-                      />
-                    </label>
-                    <label>
-                      Cantidad
-                      <input
-                        min="1"
-                        onChange={(event) =>
-                          setSealedQuantity(Number(event.target.value))
-                        }
-                        step="1"
-                        type="number"
-                        value={sealedQuantity}
-                      />
-                    </label>
-                    <label className="wide">
-                      URL de imagen
-                      <input
-                        onChange={(event) => setSealedImageUrl(event.target.value)}
-                        placeholder="https://..."
-                        type="url"
-                        value={sealedImageUrl}
-                      />
-                    </label>
-                  </div>
-                  <button className="primary-action compact" type="submit">
-                    <Plus size={17} aria-hidden />
-                    Agregar al stock
-                  </button>
-                </form>
-              </details>
-            </div>
-          </div>
-          <div className="stock-panel standalone">
-            <div className="panel-heading">
-              <div>
-                <span className="eyebrow">Stock de Pullario</span>
-                <h2>{filteredShopStock.length} productos</h2>
-              </div>
-              <button
-                className="secondary-action compact"
-                onClick={() => void loadShopStock()}
-                type="button"
-              >
-                <RotateCcw size={16} aria-hidden />
-                Refrescar
-              </button>
-            </div>
-            <StockFilterControls />
-            {stockMessage && <p className="admin-message">{stockMessage}</p>}
-            <div className="stock-list expanded">
-              {filteredShopStock.length ? (
-                filteredShopStock.map((stockItem) => (
-                  <StockItemCard key={stockItem.id} stockItem={stockItem} />
-                ))
-              ) : (
-                <p>
-                  No hay productos en este filtro. Busca una carta o carga un
-                  producto sellado.
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      ) : (
-        <SellerRequiredPanel />
-      )}
     </section>
   );
 
@@ -1273,7 +971,7 @@ export function BoosterMarket({
 
   const adminSection =
     view === "admin-stock"
-      ? adminStockSection
+      ? <AdminStockSection />
       : view === "admin-packs"
         ? <AdminPacksSection />
         : view === "admin-orders"
@@ -1389,102 +1087,7 @@ export function BoosterMarket({
         </div>
       )}
 
-      {stockEditor && (
-        <div
-          className="modal-backdrop"
-          onKeyDown={(event) => {
-            if (event.key === "Escape" && !stockEditSaving) {
-              setStockEditor(null);
-            }
-          }}
-          role="presentation"
-        >
-          <article
-            aria-labelledby="stock-edit-modal-title"
-            aria-modal="true"
-            className="utility-modal stock-edit-modal"
-            role="dialog"
-          >
-            <button
-              aria-label="Cerrar edicion de stock"
-              className="modal-close"
-              disabled={stockEditSaving}
-              onClick={() => setStockEditor(null)}
-              type="button"
-            >
-              <X size={18} aria-hidden />
-            </button>
-            <span className="eyebrow">Editar producto</span>
-            <div className="stock-edit-heading">
-              <img
-                alt=""
-                onError={handleImageError(
-                  stockEditor.card.game,
-                  itemTypeOf(stockEditor.card),
-                )}
-                src={
-                  stockEditImageUrl.trim()
-                    ? localImageUrl(stockEditImageUrl.trim())
-                    : cardImage({ ...stockEditor.card, imageUrl: undefined })
-                }
-              />
-              <div>
-                <h2 id="stock-edit-modal-title">{stockEditor.card.name}</h2>
-                <p>
-                  {gameLabels[stockEditor.card.game]} - Stock actual: {stockEditor.quantity}
-                </p>
-              </div>
-            </div>
-            <label>
-              Precio USD
-              <input
-                autoFocus
-                inputMode="decimal"
-                onChange={(event) => setStockEditPrice(event.target.value)}
-                placeholder="Ej: 12.50"
-                type="text"
-                value={stockEditPrice}
-              />
-            </label>
-            <label>
-              URL de la imagen
-              <input
-                onChange={(event) => setStockEditImageUrl(event.target.value)}
-                placeholder="https://..."
-                type="url"
-                value={stockEditImageUrl}
-              />
-            </label>
-            <p className="stock-edit-help">
-              Podes usar una imagen directa en formato JPG, PNG o WebP.
-            </p>
-            {stockEditError && (
-              <p className="search-error" role="alert">
-                {stockEditError}
-              </p>
-            )}
-            <div className="stock-edit-actions">
-              <button
-                className="secondary-action compact"
-                disabled={stockEditSaving}
-                onClick={() => setStockEditor(null)}
-                type="button"
-              >
-                Cancelar
-              </button>
-              <button
-                className="primary-action compact"
-                disabled={stockEditSaving || stockEditPrice.trim() === ""}
-                onClick={() => void saveStockDetails()}
-                type="button"
-              >
-                <Save size={16} aria-hidden />
-                {stockEditSaving ? "Guardando" : "Guardar cambios"}
-              </button>
-            </div>
-          </article>
-        </div>
-      )}
+      <StockEditModal />
 
       <WalletModal />
 
