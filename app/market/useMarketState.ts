@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAdminOrders } from "./admin/useAdminOrders";
 import { useAdminPacks } from "./admin/useAdminPacks";
+import { useAdminShipments } from "./admin/useAdminShipments";
 import { useAdminStock } from "./admin/useAdminStock";
 import { apiFetch, authHeader, clearStoredSession } from "./api";
 import { useRouletteAudio } from "./audio/useRouletteAudio";
@@ -19,15 +20,12 @@ import type {
   AdminUserCardsResponse,
   AdminUsersResponse,
   AdminUserSummary,
-  DeliverShipmentResponse,
   MarketProps,
   OpenPackResponse,
   PackItem,
   RecentDrop,
   RecentDropsResponse,
   RouletteState,
-  ShopOrderItem,
-  ShopShipmentsResponse,
   UserCardItem,
 } from "./types";
 import { useUpgrader } from "./upgrader/useUpgrader";
@@ -436,13 +434,25 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     toggleShipmentSelection,
     withdrawnOrderCount,
   } = adminOrders;
-  const [activeShipments, setActiveShipments] = useState<ShopOrderItem[]>([]);
-  const [shipmentHistory, setShipmentHistory] = useState<ShopOrderItem[]>([]);
-  const [shipmentView, setShipmentView] = useState<"active" | "history">(
-    "active",
-  );
-  const [shipmentsMessage, setShipmentsMessage] = useState("");
-  const [shipmentBusyKey, setShipmentBusyKey] = useState<string | null>(null);
+  const adminShipments = useAdminShipments({ session, view });
+  const {
+    activeShipmentGroups,
+    activeShipments,
+    groupShipmentItems,
+    loadShopShipments,
+    markShipmentReceived,
+    setActiveShipments,
+    setShipmentBusyKey,
+    setShipmentHistory,
+    setShipmentsMessage,
+    setShipmentView,
+    shipmentBusyKey,
+    shipmentHistory,
+    shipmentHistoryGroups,
+    visibleShipmentGroups,
+    shipmentsMessage,
+    shipmentView,
+  } = adminShipments;
   const [adminUsers, setAdminUsers] = useState<AdminUserSummary[]>([]);
   const [adminUserQuery, setAdminUserQuery] = useState("");
   const [selectedAdminUser, setSelectedAdminUser] =
@@ -474,70 +484,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
   const spinTimers = useRef<number[]>([]);
   const rouletteTrackRef = useRef<HTMLDivElement | null>(null);
   const rouletteTickFrameRef = useRef<number | null>(null);
-
-  const loadShopShipments = useCallback(async () => {
-    if (!session || !isSellerRole(session.role)) {
-      return;
-    }
-
-    try {
-      const response = await apiFetch("/api/admin/shipments", {
-        headers: { ...authHeader(session) },
-      });
-      const payload = (await response.json()) as ShopShipmentsResponse;
-
-      if (
-        !response.ok ||
-        payload.error ||
-        !Array.isArray(payload.active) ||
-        !Array.isArray(payload.history)
-      ) {
-        throw new Error(payload.error ?? "No se pudieron leer los envios.");
-      }
-
-      setActiveShipments(payload.active);
-      setShipmentHistory(payload.history);
-      setShipmentsMessage("");
-    } catch (error) {
-      setShipmentsMessage(
-        error instanceof Error ? error.message : "No se pudieron leer los envios.",
-      );
-    }
-  }, [session]);
-
-  const markShipmentReceived = async (ids: number[], shipmentKey: string) => {
-    if (!session || !isSellerRole(session.role) || !ids.length) {
-      return;
-    }
-
-    setShipmentBusyKey(shipmentKey);
-    setShipmentsMessage("");
-
-    try {
-      const response = await apiFetch("/api/admin/shipments/deliver", {
-        method: "POST",
-        headers: {
-          ...authHeader(session),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ ids }),
-      });
-      const payload = (await response.json()) as DeliverShipmentResponse;
-
-      if (!response.ok || payload.error || !payload.ok) {
-        throw new Error(payload.error ?? "No se pudo confirmar la entrega.");
-      }
-
-      await loadShopShipments();
-      setShipmentsMessage("Entrega confirmada y guardada en el historial.");
-    } catch (error) {
-      setShipmentsMessage(
-        error instanceof Error ? error.message : "No se pudo confirmar la entrega.",
-      );
-    } finally {
-      setShipmentBusyKey(null);
-    }
-  };
 
   const loadAdminUsers = useCallback(
     async (query = "") => {
@@ -655,21 +601,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
   useEffect(() => {
     if (
       !isSellerRole(session?.role) ||
-      (view !== "admin-shipments" && view !== "admin")
-    ) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      void loadShopShipments();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [loadShopShipments, session?.role, view]);
-
-  useEffect(() => {
-    if (
-      !isSellerRole(session?.role) ||
       (view !== "admin-users" && view !== "admin")
     ) {
       return;
@@ -750,43 +681,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
       spinKey: `idle-${selectedPack.id}-${index}`,
     }));
   }, [selectedPack]);
-  const groupShipmentItems = (items: ShopOrderItem[]) =>
-    Object.values(
-      items.reduce<
-        Record<
-          string,
-          {
-            key: string;
-            userId: number;
-            username: string;
-            displayName?: string;
-            trackingNumber: string;
-            shippedAt?: string;
-            deliveredAt?: string;
-            items: ShopOrderItem[];
-          }
-        >
-      >((groups, item) => {
-        const trackingNumber = item.trackingNumber || "Sin seguimiento";
-        const key = `${item.userId}:${trackingNumber}`;
-        const group = groups[key] ?? {
-          key,
-          userId: item.userId,
-          username: item.username,
-          displayName: item.displayName,
-          trackingNumber,
-          shippedAt: item.shippedAt,
-          deliveredAt: item.deliveredAt,
-          items: [],
-        };
-
-        group.items.push(item);
-        groups[key] = group;
-        return groups;
-      }, {}),
-    );
-  const activeShipmentGroups = groupShipmentItems(activeShipments);
-  const shipmentHistoryGroups = groupShipmentItems(shipmentHistory);
   const minAdminPrice = Number(adminInventoryMinPrice);
   const maxAdminPrice = Number(adminInventoryMaxPrice);
   const visibleAdminUserCards = adminUserCards
@@ -1417,6 +1311,7 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     groupShipmentItems,
     activeShipmentGroups,
     shipmentHistoryGroups,
+    visibleShipmentGroups,
     minAdminPrice,
     maxAdminPrice,
     visibleAdminUserCards,
