@@ -1,21 +1,105 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
+import type { CardGame, ExternalCard, PrizeItemType } from "./lib/card-search";
+import {
+  apiFetch,
+  authHeader,
+  clearLegacyStoredSession,
+  clearStoredSession,
+  readStoredSession,
+  saveStoredSession,
+} from "./market/api";
+import {
+  cardImage,
+  handleImageError,
+  localImageUrl,
+} from "./market/card-display";
+import {
+  argentinaProvinces,
+  cardGames,
+  cardStatusLabels,
+  gameAccents,
+  gameLabels,
+  isSellerRole,
+  itemTypeOf,
+  newSearchState,
+  orderStatusLabels,
+  prizeItemTypes,
+  prizeTypeLabels,
+  prizeTypeShortLabels,
+  roleLabels,
+} from "./market/catalog";
+import { CardModal } from "./market/components/CardModal";
+import { SearchConsole } from "./market/components/SearchConsole";
+import { SortControl } from "./market/components/SortControl";
+import {
+  HIT_CELEBRATION_PIECES,
+  HIT_PROBABILITY_THRESHOLD,
+  ROULETTE_STRIDE,
+  safeUpgraderLandingPercent,
+} from "./market/constants";
+import { demoPacks } from "./market/demo-packs";
+import { formatCardDate, formatPercent, formatUsd } from "./market/format";
+import {
+  normalizedProbability,
+  normalizeItems,
+  packExpectedValue,
+  packHitChance,
+  topItem,
+  weightedPick,
+} from "./market/pack-math";
+import type {
+  AdminUserCardsResponse,
+  AdminUsersResponse,
+  AdminUserSummary,
+  ApiStatus,
+  AppView,
+  BoosterPack,
+  ChangerPlayResponse,
+  DeliverShipmentResponse,
+  LoginResponse,
+  OpenPackResponse,
+  PackGame,
+  PackItem,
+  PacksResponse,
+  RecentDrop,
+  RecentDropsResponse,
+  RouletteState,
+  SavePackResponse,
+  SearchResponse,
+  SearchState,
+  SelectedCardDetails,
+  SessionAuth,
+  ShipOrdersResponse,
+  ShopOrderItem,
+  ShopOrdersResponse,
+  ShopShipmentsResponse,
+  ShopStockItem,
+  ShopStockResponse,
+  UpgraderOptionsResponse,
+  UpgraderPlayResponse,
+  UserCardItem,
+  UserCardsResponse,
+  WalletResponse,
+} from "./market/types";
 import {
   ArrowLeft,
   ArrowRight,
   ArrowUpDown,
   Boxes,
-  ChevronDown,
   CircleCheck,
   CircleX,
   Database,
   Dice5,
   Eye,
+  Home,
   Info,
   LockKeyhole,
   LogIn,
-  Home,
   PackageOpen,
   Pencil,
   Plus,
@@ -27,1069 +111,15 @@ import {
   ShieldCheck,
   Sparkles,
   Trash2,
+  TriangleAlert,
   Trophy,
   Truck,
-  TriangleAlert,
   User,
   UserPlus,
   Wallet,
   X,
 } from "./MaterialIcons";
-import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, SyntheticEvent } from "react";
-import type {
-  CardGame,
-  CardLanguageGroup,
-  ExternalCard,
-  PrizeItemType,
-} from "./lib/card-search";
 
-type PackGame = CardGame | "mixed";
-type UserRole = "user" | "admin";
-
-type PackItem = {
-  slotId: string;
-  card: ExternalCard;
-  probability: number;
-};
-
-type BoosterPack = {
-  id: string;
-  name: string;
-  series: string;
-  game: PackGame;
-  price: number;
-  accent: string;
-  items: PackItem[];
-  createdBy: "demo" | "admin";
-  shopId?: number;
-  shopSlug?: string;
-  shopName?: string;
-};
-
-type SearchState = {
-  game: CardGame;
-  query: string;
-  setName: string;
-  number: string;
-  rarity: string;
-  results: ExternalCard[];
-  error: string;
-  loading: boolean;
-  loadingMore: boolean;
-  hasMore: boolean;
-  page: number;
-  sort: "relevance" | "price-asc" | "price-desc" | "number-desc";
-};
-
-type SearchResponse = {
-  cards?: ExternalCard[];
-  meta?: {
-    hasMore?: boolean;
-    page?: number;
-    total?: number;
-  };
-  error?: string;
-};
-
-type VariantsResponse = {
-  groups?: CardLanguageGroup[];
-  error?: string;
-};
-
-type SelectedCardDetails = {
-  card: ExternalCard;
-};
-
-type PacksResponse = {
-  packs?: BoosterPack[];
-  error?: string;
-};
-
-type SavePackResponse = {
-  pack?: BoosterPack;
-  error?: string;
-};
-
-type ShopStockItem = {
-  id: number;
-  card: ExternalCard;
-  quantity: number;
-};
-
-type ShopStockResponse = {
-  stock?: ShopStockItem[] | ShopStockItem;
-  deleted?: boolean;
-  error?: string;
-};
-
-type UserCardItem = {
-  id: number;
-  packId?: string;
-  packName: string;
-  card: ExternalCard;
-  valueUsd: number;
-  status: "owned" | "waiting_stock" | "sold" | "withdrawn" | "upgraded" | "changed";
-  shipmentStatus?: "pending" | "shipped" | "delivered";
-  trackingNumber?: string;
-  shippedAt?: string;
-  deliveredAt?: string;
-  acquiredAt?: string;
-};
-
-type UserCardsResponse = {
-  cards?: UserCardItem[];
-  totalValueUsd?: number;
-  ownedValueUsd?: number;
-  lifetimeValueUsd?: number;
-  error?: string;
-};
-
-type UpgraderOptionsResponse = {
-  inventory?: UserCardItem[];
-  targets?: ShopStockItem[];
-  rtp?: number;
-  maxChance?: number;
-  error?: string;
-};
-
-type UpgraderPlayResponse = {
-  runId?: string;
-  won?: boolean;
-  chance?: number;
-  roll?: number;
-  stakeValueUsd?: number;
-  target?: ShopStockItem;
-  targetQuantity?: number;
-  awardedUserCardId?: number | null;
-  awardedUserCardIds?: number[];
-  error?: string;
-};
-
-type ChangerPlayResponse = {
-  runId?: string;
-  stakeValueUsd?: number;
-  targetValueUsd?: number;
-  refundUsd?: number;
-  awardedUserCardIds?: number[];
-  targets?: Array<{
-    stockId: number;
-    quantity: number;
-    card: ExternalCard;
-    unitValueUsd: number;
-  }>;
-  user?: LoginResponse["user"];
-  error?: string;
-};
-
-type ShopOrderItem = {
-  id: number;
-  userId: number;
-  username: string;
-  displayName?: string;
-  packId?: string;
-  packName: string;
-  card: ExternalCard;
-  valueUsd: number;
-  status: "owned" | "waiting_stock" | "sold" | "withdrawn";
-  shipmentStatus?: "pending" | "shipped" | "delivered";
-  trackingNumber?: string;
-  shippedAt?: string;
-  deliveredAt?: string;
-  acquiredAt?: string;
-};
-
-type ShopOrdersResponse = {
-  orders?: ShopOrderItem[];
-  reservedCount?: number;
-  waitingStockCount?: number;
-  withdrawnCount?: number;
-  soldCount?: number;
-  error?: string;
-};
-
-type ShipOrdersResponse = {
-  ok?: boolean;
-  shippedCount?: number;
-  error?: string;
-};
-
-type ShopShipmentsResponse = {
-  active?: ShopOrderItem[];
-  history?: ShopOrderItem[];
-  error?: string;
-};
-
-type DeliverShipmentResponse = {
-  ok?: boolean;
-  deliveredCount?: number;
-  error?: string;
-};
-
-type AdminUserSummary = {
-  id: number;
-  username: string;
-  displayName?: string;
-  email?: string;
-  prizeCount: number;
-  activeCount: number;
-  spentValueUsd: number;
-  withdrawnValueUsd: number;
-};
-
-type AdminUsersResponse = {
-  users?: AdminUserSummary[];
-  error?: string;
-};
-
-type AdminUserCardsResponse = {
-  user?: Pick<AdminUserSummary, "id" | "username" | "displayName" | "email">;
-  cards?: UserCardItem[];
-  error?: string;
-};
-
-type WalletResponse = {
-  user?: LoginResponse["user"];
-  valueUsd?: number;
-  error?: string;
-};
-
-type OpenPackResponse = {
-  item?: PackItem;
-  userCardId?: number;
-  user?: LoginResponse["user"];
-  error?: string;
-};
-
-type RecentDrop = {
-  id: number;
-  username: string;
-  displayName?: string;
-  packId?: string;
-  packName: string;
-  packPrice: number;
-  card: ExternalCard;
-  valueUsd: number;
-  acquiredAt?: string;
-};
-
-type RecentDropsResponse = {
-  drops?: RecentDrop[];
-  error?: string;
-};
-
-type LoginResponse = {
-  token?: string;
-  user?: {
-    id: number;
-    username: string;
-    role: UserRole;
-    displayName?: string;
-    email?: string;
-    fullName?: string;
-    phone?: string;
-    addressLine1?: string;
-    addressLine2?: string;
-    street?: string;
-    streetNumber?: string;
-    floor?: string;
-    apartment?: string;
-    addressReference?: string;
-    city?: string;
-    province?: string;
-    postalCode?: string;
-    country?: string;
-    hasShippingAddress?: boolean;
-    shippingAddressMissing?: string[];
-    balanceUsd?: number;
-  };
-  error?: string;
-};
-
-type SessionAuth = {
-  token: string;
-  id: number;
-  username: string;
-  role: UserRole;
-  displayName?: string;
-  email?: string;
-  fullName?: string;
-  phone?: string;
-  addressLine1?: string;
-  addressLine2?: string;
-  street?: string;
-  streetNumber?: string;
-  floor?: string;
-  apartment?: string;
-  addressReference?: string;
-  city?: string;
-  province?: string;
-  postalCode?: string;
-  country?: string;
-  hasShippingAddress?: boolean;
-  shippingAddressMissing?: string[];
-  balanceUsd?: number;
-};
-
-type ApiStatus = "checking" | "online" | "offline";
-type AppView =
-  | "home"
-  | "pack"
-  | "admin"
-  | "admin-stock"
-  | "admin-packs"
-  | "admin-orders"
-  | "admin-shipments"
-  | "admin-users"
-  | "profile"
-  | "cards"
-  | "upgrader"
-  | "changer";
-
-type RouletteCard = PackItem & {
-  spinKey: string;
-};
-
-type RouletteState = {
-  packId?: string;
-  items: RouletteCard[];
-  targetIndex: number;
-  offset: number;
-  phase: "idle" | "spinning" | "done";
-  runId: number;
-  result?: PackItem;
-};
-
-const AUTH_STORAGE_KEY = "pullario-session-v1";
-const LEGACY_AUTH_STORAGE_KEY = "hitshelf-session-v1";
-const LOCAL_API_BASE = (
-  process.env.NEXT_PUBLIC_LOCAL_API_URL || "http://localhost:3004"
-).replace(/\/$/, "");
-const ROULETTE_CARD_WIDTH = 164;
-const ROULETTE_GAP = 10;
-const ROULETTE_STRIDE = ROULETTE_CARD_WIDTH + ROULETTE_GAP;
-const HIT_PROBABILITY_THRESHOLD = 10;
-const UPGRADER_LANDING_INSET = 0.2;
-const HIT_CELEBRATION_PIECES = Array.from({ length: 28 }, (_, index) => ({
-  color: ["#ffcf4a", "#73e4d7", "#ff7897", "#8dde72"][index % 4],
-  delay: `${(index % 7) * 55}ms`,
-  left: `${4 + ((index * 37) % 92)}%`,
-  rotation: `${(index * 47) % 180}deg`,
-}));
-
-const safeUpgraderLandingPercent = (
-  roll: number,
-  chance: number,
-  won: boolean,
-) => {
-  const safeChance = Math.min(100, Math.max(0, chance));
-
-  if (won) {
-    const normalizedRoll = safeChance > 0 ? Math.min(1, roll / safeChance) : 0.5;
-    return (
-      safeChance *
-      (UPGRADER_LANDING_INSET +
-        normalizedRoll * (1 - UPGRADER_LANDING_INSET * 2))
-    );
-  }
-
-  const lossSize = Math.max(0, 100 - safeChance);
-  const normalizedRoll =
-    lossSize > 0 ? Math.min(1, Math.max(0, (roll - safeChance) / lossSize)) : 0.5;
-  return (
-    safeChance +
-    lossSize *
-      (UPGRADER_LANDING_INSET +
-        normalizedRoll * (1 - UPGRADER_LANDING_INSET * 2))
-  );
-};
-
-const formatUsd = new Intl.NumberFormat("es-AR", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 2,
-});
-
-const formatPercent = new Intl.NumberFormat("es-AR", {
-  maximumFractionDigits: 3,
-  minimumFractionDigits: 0,
-});
-
-const formatDateTime = new Intl.DateTimeFormat("es-AR", {
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-});
-
-const formatCardDate = (value?: string) => {
-  if (!value) {
-    return "Sin fecha";
-  }
-
-  const date = new Date(value);
-
-  return Number.isNaN(date.getTime()) ? "Sin fecha" : formatDateTime.format(date);
-};
-
-const gameLabels: Record<PackGame, string> = {
-  "one-piece": "One Piece",
-  pokemon: "Pokemon",
-  magic: "Magic",
-  mixed: "Mixto",
-};
-
-const gameAccents: Record<PackGame, string> = {
-  "one-piece": "#15c8ff",
-  pokemon: "#ffcc33",
-  magic: "#c084fc",
-  mixed: "#ff4f7b",
-};
-
-const cardGames: CardGame[] = ["one-piece", "pokemon", "magic"];
-const argentinaProvinces = [
-  "Buenos Aires",
-  "Ciudad Autonoma de Buenos Aires",
-  "Catamarca",
-  "Chaco",
-  "Chubut",
-  "Cordoba",
-  "Corrientes",
-  "Entre Rios",
-  "Formosa",
-  "Jujuy",
-  "La Pampa",
-  "La Rioja",
-  "Mendoza",
-  "Misiones",
-  "Neuquen",
-  "Rio Negro",
-  "Salta",
-  "San Juan",
-  "San Luis",
-  "Santa Cruz",
-  "Santa Fe",
-  "Santiago del Estero",
-  "Tierra del Fuego",
-  "Tucuman",
-];
-
-const prizeItemTypes: PrizeItemType[] = ["card", "sealed-pack", "sealed-box"];
-
-const prizeTypeLabels: Record<PrizeItemType, string> = {
-  card: "Carta",
-  "sealed-pack": "Sobre sellado",
-  "sealed-box": "Caja sellada",
-};
-
-const prizeTypeShortLabels: Record<PrizeItemType, string> = {
-  card: "Cartas",
-  "sealed-pack": "Sobres",
-  "sealed-box": "Cajas",
-};
-
-const itemTypeOf = (card: ExternalCard): PrizeItemType =>
-  card.itemType ?? "card";
-
-const isCardPrize = (card: ExternalCard) => itemTypeOf(card) === "card";
-
-const roleLabels: Record<UserRole, string> = {
-  user: "Usuario registrado",
-  admin: "Administrador",
-};
-
-const cardStatusLabels: Record<UserCardItem["status"], string> = {
-  owned: "Disponible",
-  waiting_stock: "Esperando stock",
-  sold: "Vendida",
-  withdrawn: "Retirada",
-  upgraded: "Usada en Upgrader",
-  changed: "Usada en Changer",
-};
-
-const orderStatusLabels: Record<UserCardItem["status"], string> = {
-  owned: "Ganada",
-  waiting_stock: "Esperando stock",
-  sold: "Vendida",
-  withdrawn: "Retiro confirmado",
-  upgraded: "Usada en Upgrader",
-  changed: "Usada en Changer",
-};
-
-const isSellerRole = (role?: UserRole) => role === "admin";
-
-const fallbackImages: Record<CardGame, string> = {
-  "one-piece": "https://optcgapi.com/media/static/Card_Images/OP01-001.jpg",
-  pokemon: "https://images.pokemontcg.io/base1/4_hires.png",
-  magic:
-    "https://cards.scryfall.io/normal/front/7/7/77bdf609-2d7e-4bdb-a9fd-8b5eeebd6e0e.jpg?1562738291",
-};
-
-const fallbackSealedImage = "/favicon.svg";
-
-const makeCard = (card: ExternalCard): ExternalCard => card;
-
-const demoPacks: BoosterPack[] = [
-  {
-    id: "demo-romance-dawn",
-    name: "Romance Dawn Chase",
-    series: "OP-01 Romance Dawn",
-    game: "one-piece",
-    price: 18,
-    accent: gameAccents["one-piece"],
-    createdBy: "demo",
-    items: [
-      {
-        slotId: "op-zoro-manga",
-        probability: 0.05,
-        card: makeCard({
-          id: "OP01-001-p1",
-          game: "one-piece",
-          name: "Roronoa Zoro (Manga)",
-          setName: "Romance Dawn",
-          number: "OP01-001",
-          rarity: "Leader Parallel",
-          imageUrl: "https://optcgapi.com/media/static/Card_Images/OP01-001_p1.jpg",
-          priceUsd: 1983.33,
-          priceSource: "OPTCG API market",
-          updatedAt: "2026-07-22",
-        }),
-      },
-      {
-        slotId: "op-zoro-leader",
-        probability: 4.2,
-        card: makeCard({
-          id: "OP01-001",
-          game: "one-piece",
-          name: "Roronoa Zoro (001)",
-          setName: "Romance Dawn",
-          number: "OP01-001",
-          rarity: "L",
-          imageUrl: "https://optcgapi.com/media/static/Card_Images/OP01-001.jpg",
-          priceUsd: 6.05,
-          priceSource: "OPTCG API market",
-          updatedAt: "2026-07-22",
-        }),
-      },
-      {
-        slotId: "op-perona",
-        probability: 16,
-        card: makeCard({
-          id: "OP01-077",
-          game: "one-piece",
-          name: "Perona",
-          setName: "Romance Dawn",
-          number: "OP01-077",
-          rarity: "UC",
-          imageUrl: "https://optcgapi.com/media/static/Card_Images/OP01-077.jpg",
-          priceUsd: 0.96,
-          priceSource: "OPTCG API market",
-          updatedAt: "2026-07-22",
-        }),
-      },
-      {
-        slotId: "op-diable-jambe",
-        probability: 26,
-        card: makeCard({
-          id: "ST01-016",
-          game: "one-piece",
-          name: "Diable Jambe",
-          setName: "Starter Deck 1: Straw Hat Crew",
-          number: "ST01-016",
-          rarity: "C",
-          imageUrl: "https://optcgapi.com/media/static/Card_Images/ST01-016.jpg",
-          priceUsd: 0.42,
-          priceSource: "OPTCG API market",
-          updatedAt: "2026-07-23",
-        }),
-      },
-      {
-        slotId: "op-don-egghead",
-        probability: 53.75,
-        card: makeCard({
-          id: "don-egghead",
-          game: "one-piece",
-          name: "DON!! Card (Egghead)",
-          setName: "DON!! Cards",
-          number: "DON",
-          rarity: "DON!!",
-          imageUrl:
-            "https://optcgapi.com/media/static/Card_Images/DON_Card_Egghead_-_The_Azure_Seas_Seven_OP14_img.jpg",
-          priceUsd: 0.46,
-          priceSource: "OPTCG API market",
-          updatedAt: "2026-07-23",
-        }),
-      },
-    ],
-  },
-  {
-    id: "demo-kanto",
-    name: "Kanto Vault",
-    series: "Pokemon Vintage + Modern",
-    game: "pokemon",
-    price: 14,
-    accent: gameAccents.pokemon,
-    createdBy: "demo",
-    items: [
-      {
-        slotId: "pk-blaines-charizard",
-        probability: 0.08,
-        card: makeCard({
-          id: "gym2-2",
-          game: "pokemon",
-          name: "Blaine's Charizard",
-          setName: "Gym Challenge",
-          number: "2",
-          rarity: "Rare Holo",
-          imageUrl: "https://images.pokemontcg.io/gym2/2_hires.png",
-          priceUsd: 573.82,
-          priceSource: "PokemonTCG.io / TCGplayer",
-          updatedAt: "2026/07/23",
-        }),
-      },
-      {
-        slotId: "pk-base-charizard",
-        probability: 0.12,
-        card: makeCard({
-          id: "base1-4",
-          game: "pokemon",
-          name: "Charizard",
-          setName: "Base",
-          number: "4",
-          rarity: "Rare Holo",
-          imageUrl: "https://images.pokemontcg.io/base1/4_hires.png",
-          priceUsd: 399.99,
-          priceSource: "PokemonTCG.io / sample",
-          updatedAt: "local",
-        }),
-      },
-      {
-        slotId: "pk-pikachu",
-        probability: 18,
-        card: makeCard({
-          id: "base1-58",
-          game: "pokemon",
-          name: "Pikachu",
-          setName: "Base",
-          number: "58",
-          rarity: "Common",
-          imageUrl: "https://images.pokemontcg.io/base1/58_hires.png",
-          priceUsd: 2.42,
-          priceSource: "PokemonTCG.io / sample",
-          updatedAt: "local",
-        }),
-      },
-      {
-        slotId: "pk-energy",
-        probability: 81.8,
-        card: makeCard({
-          id: "base1-98",
-          game: "pokemon",
-          name: "Fire Energy",
-          setName: "Base",
-          number: "98",
-          rarity: "Common",
-          imageUrl: "https://images.pokemontcg.io/base1/98_hires.png",
-          priceUsd: 0.35,
-          priceSource: "PokemonTCG.io / sample",
-          updatedAt: "local",
-        }),
-      },
-    ],
-  },
-  {
-    id: "demo-cross",
-    name: "Cross-TCG Jackpot",
-    series: "Mixed hits",
-    game: "mixed",
-    price: 35,
-    accent: gameAccents.mixed,
-    createdBy: "demo",
-    items: [
-      {
-        slotId: "mix-zoro",
-        probability: 0.12,
-        card: makeCard({
-          id: "mix-op-zoro",
-          game: "one-piece",
-          name: "Roronoa Zoro (Manga)",
-          setName: "Romance Dawn",
-          number: "OP01-001",
-          rarity: "Leader Parallel",
-          imageUrl: "https://optcgapi.com/media/static/Card_Images/OP01-001_p1.jpg",
-          priceUsd: 1983.33,
-          priceSource: "OPTCG API market",
-          updatedAt: "2026-07-22",
-        }),
-      },
-      {
-        slotId: "mix-charizard",
-        probability: 0.22,
-        card: makeCard({
-          id: "mix-charizard",
-          game: "pokemon",
-          name: "Blaine's Charizard",
-          setName: "Gym Challenge",
-          number: "2",
-          rarity: "Rare Holo",
-          imageUrl: "https://images.pokemontcg.io/gym2/2_hires.png",
-          priceUsd: 573.82,
-          priceSource: "PokemonTCG.io / TCGplayer",
-          updatedAt: "2026/07/23",
-        }),
-      },
-      {
-        slotId: "mix-bolt",
-        probability: 9.66,
-        card: makeCard({
-          id: "mix-lightning-bolt",
-          game: "magic",
-          name: "Lightning Bolt",
-          setName: "Magic",
-          number: "various",
-          rarity: "Common",
-          imageUrl:
-            "https://cards.scryfall.io/normal/front/7/7/77bdf609-2d7e-4bdb-a9fd-8b5eeebd6e0e.jpg?1562738291",
-          priceUsd: 6.31,
-          priceSource: "Scryfall sample",
-          updatedAt: "local",
-        }),
-      },
-      {
-        slotId: "mix-floor",
-        probability: 90,
-        card: makeCard({
-          id: "mix-don",
-          game: "one-piece",
-          name: "DON!! Card (Egghead)",
-          setName: "DON!! Cards",
-          number: "DON",
-          rarity: "DON!!",
-          imageUrl:
-            "https://optcgapi.com/media/static/Card_Images/DON_Card_Egghead_-_The_Azure_Seas_Seven_OP14_img.jpg",
-          priceUsd: 0.46,
-          priceSource: "OPTCG API market",
-          updatedAt: "2026-07-23",
-        }),
-      },
-    ],
-  },
-];
-
-const newSearchState = (game: CardGame, query: string): SearchState => ({
-  game,
-  query,
-  setName: "",
-  number: "",
-  rarity: "",
-  results: [],
-  error: "",
-  loading: false,
-  loadingMore: false,
-  hasMore: false,
-  page: 0,
-  sort: "relevance",
-});
-
-const localApiUrl = (path: string) => `${LOCAL_API_BASE}${path}`;
-
-const parseSessionAuth = (raw: string | null): SessionAuth | null => {
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as SessionAuth;
-    return parsed?.token &&
-      parsed?.username &&
-      (parsed.role === "user" || parsed.role === "admin")
-      ? parsed
-      : null;
-  } catch {
-    return null;
-  }
-};
-
-const localImageUrl = (imageUrl: string) =>
-  imageUrl.startsWith("https://www.onepiece-cardgame.com/")
-    ? `/api/images/proxy?url=${encodeURIComponent(imageUrl)}`
-    : imageUrl;
-
-const cardImage = (card: ExternalCard) =>
-  card.imageUrl
-    ? localImageUrl(card.imageUrl)
-    : isCardPrize(card)
-      ? fallbackImages[card.game]
-      : fallbackSealedImage;
-
-const handleImageError =
-  (game: CardGame, itemType: PrizeItemType = "card") =>
-  (event: SyntheticEvent<HTMLImageElement>) => {
-    const fallback =
-      itemType === "card" ? fallbackImages[game] : fallbackSealedImage;
-
-    if (event.currentTarget.src !== fallback) {
-      event.currentTarget.src = fallback;
-    }
-  };
-
-const languageLabelForCard = (card: ExternalCard) => {
-  if (card.languageLabel) {
-    return card.languageLabel;
-  }
-
-  if (card.id.startsWith("onepiece-jp:") || card.id.startsWith("tcgdex:ja:")) {
-    return "Japones";
-  }
-
-  if (card.id.startsWith("tcgdex:zh-cn:")) {
-    return "Chino simplificado";
-  }
-
-  if (card.id.startsWith("tcgdex:zh-tw:")) {
-    return "Chino tradicional";
-  }
-
-  return "Ingles";
-};
-
-const singleCardLanguageGroup = (card: ExternalCard): CardLanguageGroup => ({
-  language: card.language ?? "en",
-  label: languageLabelForCard(card),
-  cards: [card],
-});
-
-const variantLoadingSteps = (game: CardGame) =>
-  game === "pokemon"
-    ? [
-        "Ubicando set y numero exacto",
-        "Buscando equivalencia japonesa",
-        "Buscando chino tradicional",
-        "Buscando chino simplificado",
-        "Validando especie e ilustracion",
-        "Cruzando precios",
-      ]
-    : game === "one-piece"
-      ? [
-          "Ubicando print exacto",
-          "Buscando version inglesa",
-          "Buscando version japonesa",
-          "Consultando precio japones",
-          "Cruzando imagenes y fuentes",
-        ]
-      : [
-          "Ubicando print exacto",
-          "Buscando versiones",
-          "Cruzando precios",
-        ];
-
-const packProbabilityTotal = (pack: Pick<BoosterPack, "items">) =>
-  pack.items.reduce((total, item) => total + Math.max(0, item.probability), 0);
-
-const normalizedProbability = (
-  item: PackItem,
-  pack: Pick<BoosterPack, "items">,
-) => {
-  const total = packProbabilityTotal(pack);
-  return total > 0 ? (Math.max(0, item.probability) / total) * 100 : 0;
-};
-
-const packExpectedValue = (pack: Pick<BoosterPack, "items">) => {
-  const total = packProbabilityTotal(pack);
-  if (!total) {
-    return 0;
-  }
-
-  return pack.items.reduce((ev, item) => {
-    const price = item.card.priceUsd ?? 0;
-    return ev + price * (Math.max(0, item.probability) / total);
-  }, 0);
-};
-
-const packHitChance = (pack: BoosterPack) =>
-  pack.items.reduce((total, item) => {
-    const price = item.card.priceUsd ?? 0;
-    return price >= pack.price ? total + normalizedProbability(item, pack) : total;
-  }, 0);
-
-const topItem = (pack: BoosterPack) =>
-  [...pack.items].sort((a, b) => (b.card.priceUsd ?? 0) - (a.card.priceUsd ?? 0))[0];
-
-const TARGET_PAYOUT_RATE = 0.7;
-const MIN_PRICE_WEIGHT_EXPONENT = 0.35;
-const MAX_PRICE_WEIGHT_EXPONENT = 8;
-const MINIMUM_ITEM_PROBABILITY = 0.01;
-const CHEAPEST_ITEM_WEIGHTS = [4, 3, 2.2];
-
-const weightedPick = (items: PackItem[]) => {
-  const total = items.reduce(
-    (sum, item) => sum + Math.max(0, item.probability),
-    0,
-  );
-
-  if (total <= 0) {
-    return items[0];
-  }
-
-  let roll = Math.random() * total;
-  for (const item of items) {
-    roll -= Math.max(0, item.probability);
-    if (roll <= 0) {
-      return item;
-    }
-  }
-
-  return items[items.length - 1];
-};
-
-const roundProbabilities = (probabilities: number[]) => {
-  if (!probabilities.length) {
-    return probabilities;
-  }
-
-  const minimum = Math.min(
-    MINIMUM_ITEM_PROBABILITY,
-    Number((100 / probabilities.length).toFixed(3)),
-  );
-  const rounded = probabilities.map((probability) =>
-    Math.max(minimum, Number(Math.max(0, probability).toFixed(3))),
-  );
-  let adjustment = Number(
-    (100 - rounded.reduce((sum, probability) => sum + probability, 0)).toFixed(
-      3,
-    ),
-  );
-
-  if (adjustment > 0) {
-    const targetIndex = rounded.reduce(
-      (bestIndex, probability, index) =>
-        probability > rounded[bestIndex] ? index : bestIndex,
-      0,
-    );
-    rounded[targetIndex] = Number(
-      (rounded[targetIndex] + adjustment).toFixed(3),
-    );
-    adjustment = 0;
-  }
-
-  if (adjustment < 0) {
-    const indexesByProbability = rounded
-      .map((probability, index) => ({ index, probability }))
-      .sort((a, b) => b.probability - a.probability);
-
-    for (const { index } of indexesByProbability) {
-      const removable = Number((rounded[index] - minimum).toFixed(3));
-      const amount = Math.min(removable, Math.abs(adjustment));
-
-      if (amount > 0) {
-        rounded[index] = Number((rounded[index] - amount).toFixed(3));
-        adjustment = Number((adjustment + amount).toFixed(3));
-      }
-
-      if (adjustment === 0) {
-        break;
-      }
-    }
-  }
-
-  return rounded;
-};
-
-const priceWeightedProbabilities = (
-  items: PackItem[],
-  exponent = 0,
-) => {
-  const pricedItems = items
-    .map((item, index) => ({
-      index,
-      price: Math.max(item.card.priceUsd ?? 0, 0.05),
-    }))
-    .sort((a, b) => a.price - b.price);
-
-  const cheapRank = new Map(
-    pricedItems
-      .slice(0, 3)
-      .map((item, index) => [item.index, index]),
-  );
-  const weights = pricedItems.map((item) => {
-    const rank = cheapRank.get(item.index);
-    const tierWeight = rank === undefined ? 1 : CHEAPEST_ITEM_WEIGHTS[rank];
-    return tierWeight / Math.pow(item.price, exponent);
-  });
-  const weightTotal = weights.reduce((total, weight) => total + weight, 0);
-  const probabilities = Array.from({ length: items.length }, () => 0);
-
-  pricedItems.forEach((item, index) => {
-    probabilities[item.index] =
-      weightTotal > 0
-        ? ((weights[index] ?? 0) / weightTotal) * 100
-        : 100 / items.length;
-  });
-
-  return probabilities;
-};
-
-const expectedValueFromProbabilities = (
-  items: PackItem[],
-  probabilities: number[],
-) =>
-  items.reduce(
-    (ev, item, index) =>
-      ev + (item.card.priceUsd ?? 0) * ((probabilities[index] ?? 0) / 100),
-    0,
-  );
-
-const normalizeItems = (items: PackItem[], packPrice = 0) => {
-  if (!items.length) {
-    return items;
-  }
-
-  const targetEv = Math.max(0, packPrice) * TARGET_PAYOUT_RATE;
-
-  if (!targetEv) {
-    const probabilities = roundProbabilities(
-      priceWeightedProbabilities(items, MIN_PRICE_WEIGHT_EXPONENT),
-    );
-
-    return items.map((item, index) => ({
-      ...item,
-      probability: probabilities[index] ?? 0,
-    }));
-  }
-
-  let bestProbabilities = priceWeightedProbabilities(
-    items,
-    MIN_PRICE_WEIGHT_EXPONENT,
-  );
-
-  if (expectedValueFromProbabilities(items, bestProbabilities) > targetEv) {
-    let low = MIN_PRICE_WEIGHT_EXPONENT;
-    let high = MAX_PRICE_WEIGHT_EXPONENT;
-    bestProbabilities = priceWeightedProbabilities(items, high);
-
-    for (let attempt = 0; attempt < 28; attempt += 1) {
-      const exponent = (low + high) / 2;
-      const probabilities = priceWeightedProbabilities(items, exponent);
-      const ev = expectedValueFromProbabilities(items, probabilities);
-
-      if (ev > targetEv) {
-        low = exponent;
-      } else {
-        high = exponent;
-        bestProbabilities = probabilities;
-      }
-    }
-  }
-
-  const probabilities = roundProbabilities(bestProbabilities);
-
-  return items.map((item, index) => ({
-    ...item,
-    probability: probabilities[index] ?? 0,
-  }));
-};
 
 export function BoosterMarket({
   initialPackId,
@@ -1282,17 +312,14 @@ export function BoosterMarket({
   }, [wonCardsMessage]);
 
   useEffect(() => {
-    const storedSession = parseSessionAuth(
-      localStorage.getItem(AUTH_STORAGE_KEY) ??
-        localStorage.getItem(LEGACY_AUTH_STORAGE_KEY),
-    );
+    const storedSession = readStoredSession();
 
     if (!storedSession) {
       return;
     }
 
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(storedSession));
-    localStorage.removeItem(LEGACY_AUTH_STORAGE_KEY);
+    saveStoredSession(storedSession);
+    clearLegacyStoredSession();
     setSession(storedSession);
     setProfileDisplayName(storedSession.displayName ?? "");
     setProfileEmail(storedSession.email ?? "");
@@ -1310,8 +337,8 @@ export function BoosterMarket({
     setProfilePostalCode(storedSession.postalCode ?? "");
     setProfileCountry(storedSession.country?.trim() || "Argentina");
 
-    void fetch(localApiUrl("/api/me"), {
-      headers: { Authorization: `Bearer ${storedSession.token}` },
+    void apiFetch("/api/me", {
+      headers: { ...authHeader(storedSession) },
     })
       .then(async (response) => {
         const payload = (await response.json()) as LoginResponse;
@@ -1319,7 +346,7 @@ export function BoosterMarket({
         if (!response.ok || !payload.user) {
           if (response.status === 401) {
             setSession(null);
-            localStorage.removeItem(AUTH_STORAGE_KEY);
+            clearStoredSession();
           }
           return;
         }
@@ -1330,7 +357,7 @@ export function BoosterMarket({
           token: storedSession.token,
         };
         setSession(refreshedSession);
-        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(refreshedSession));
+        saveStoredSession(refreshedSession);
         setProfileDisplayName(refreshedSession.displayName ?? "");
         setProfileEmail(refreshedSession.email ?? "");
         setProfileFullName(refreshedSession.fullName ?? "");
@@ -1358,7 +385,7 @@ export function BoosterMarket({
     setApiStatus("checking");
 
     try {
-      const response = await fetch(localApiUrl("/api/packs"));
+      const response = await apiFetch("/api/packs");
       const payload = (await response.json()) as PacksResponse;
 
       if (!response.ok || payload.error) {
@@ -1380,9 +407,9 @@ export function BoosterMarket({
     }
 
     try {
-      const response = await fetch(localApiUrl("/api/me/cards"), {
+      const response = await apiFetch("/api/me/cards", {
         headers: {
-          Authorization: `Bearer ${session.token}`,
+          ...authHeader(session),
         },
       });
       const payload = (await response.json()) as UserCardsResponse;
@@ -1405,9 +432,9 @@ export function BoosterMarket({
   const loadUpgraderOptions = useCallback(async () => {
     setUpgraderLoading(true);
     try {
-      const response = await fetch(localApiUrl("/api/upgrader"), {
+      const response = await apiFetch("/api/upgrader", {
         headers: session
-          ? { Authorization: `Bearer ${session.token}` }
+          ? { ...authHeader(session) }
           : undefined,
       });
       const payload = (await response.json()) as UpgraderOptionsResponse;
@@ -1438,9 +465,9 @@ export function BoosterMarket({
   const loadChangerOptions = useCallback(async () => {
     setChangerLoading(true);
     try {
-      const response = await fetch(localApiUrl("/api/changer"), {
+      const response = await apiFetch("/api/changer", {
         headers: session
-          ? { Authorization: `Bearer ${session.token}` }
+          ? { ...authHeader(session) }
           : undefined,
       });
       const payload = (await response.json()) as UpgraderOptionsResponse;
@@ -1474,9 +501,9 @@ export function BoosterMarket({
     }
 
     try {
-      const response = await fetch(localApiUrl("/api/admin/stock"), {
+      const response = await apiFetch("/api/admin/stock", {
         headers: {
-          Authorization: `Bearer ${session.token}`,
+          ...authHeader(session),
         },
       });
       const payload = (await response.json()) as ShopStockResponse;
@@ -1502,9 +529,9 @@ export function BoosterMarket({
     }
 
     try {
-      const response = await fetch(localApiUrl("/api/admin/orders"), {
+      const response = await apiFetch("/api/admin/orders", {
         headers: {
-          Authorization: `Bearer ${session.token}`,
+          ...authHeader(session),
         },
       });
       const payload = (await response.json()) as ShopOrdersResponse;
@@ -1566,10 +593,10 @@ export function BoosterMarket({
     setOrdersMessage("");
 
     try {
-      const response = await fetch(localApiUrl("/api/admin/orders/ship"), {
+      const response = await apiFetch("/api/admin/orders/ship", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${session.token}`,
+          ...authHeader(session),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -1610,8 +637,8 @@ export function BoosterMarket({
     }
 
     try {
-      const response = await fetch(localApiUrl("/api/admin/shipments"), {
-        headers: { Authorization: `Bearer ${session.token}` },
+      const response = await apiFetch("/api/admin/shipments", {
+        headers: { ...authHeader(session) },
       });
       const payload = (await response.json()) as ShopShipmentsResponse;
 
@@ -1643,10 +670,10 @@ export function BoosterMarket({
     setShipmentsMessage("");
 
     try {
-      const response = await fetch(localApiUrl("/api/admin/shipments/deliver"), {
+      const response = await apiFetch("/api/admin/shipments/deliver", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${session.token}`,
+          ...authHeader(session),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ ids }),
@@ -1679,9 +706,9 @@ export function BoosterMarket({
 
       try {
         const params = new URLSearchParams({ query: query.trim() });
-        const response = await fetch(
-          localApiUrl(`/api/admin/users?${params.toString()}`),
-          { headers: { Authorization: `Bearer ${session.token}` } },
+        const response = await apiFetch(
+          `/api/admin/users?${params.toString()}`,
+          { headers: { ...authHeader(session) } },
         );
         const payload = (await response.json()) as AdminUsersResponse;
 
@@ -1734,9 +761,9 @@ export function BoosterMarket({
     setAdminUsersMessage("");
 
     try {
-      const response = await fetch(
-        localApiUrl(`/api/admin/users/${encodeURIComponent(user.id)}/cards`),
-        { headers: { Authorization: `Bearer ${session.token}` } },
+      const response = await apiFetch(
+        `/api/admin/users/${encodeURIComponent(user.id)}/cards`,
+        { headers: { ...authHeader(session) } },
       );
       const payload = (await response.json()) as AdminUserCardsResponse;
 
@@ -1764,7 +791,7 @@ export function BoosterMarket({
 
     try {
       const params = new URLSearchParams({ packId, limit: "12" });
-      const response = await fetch(localApiUrl(`/api/drops?${params.toString()}`));
+      const response = await apiFetch(`/api/drops?${params.toString()}`);
       const payload = (await response.json()) as RecentDropsResponse;
 
       if (!response.ok || payload.error) {
@@ -2511,7 +1538,7 @@ export function BoosterMarket({
 
   const storeSession = (nextSession: SessionAuth) => {
     setSession(nextSession);
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(nextSession));
+    saveStoredSession(nextSession);
     setProfileDisplayName(nextSession.displayName ?? "");
     setProfileEmail(nextSession.email ?? "");
     setProfileFullName(nextSession.fullName ?? "");
@@ -2565,10 +1592,8 @@ export function BoosterMarket({
     let nextApiStatus: ApiStatus = "offline";
 
     try {
-      const response = await fetch(
-        localApiUrl(
-          authMode === "login" ? "/api/auth/login" : "/api/auth/register",
-        ),
+      const response = await apiFetch(
+        authMode === "login" ? "/api/auth/login" : "/api/auth/register",
         {
           method: "POST",
           headers: {
@@ -2615,16 +1640,16 @@ export function BoosterMarket({
 
   const logout = () => {
     if (session) {
-      void fetch(localApiUrl("/api/auth/logout"), {
+      void apiFetch("/api/auth/logout", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${session.token}`,
+          ...authHeader(session),
         },
       }).catch(() => undefined);
     }
 
     setSession(null);
-    localStorage.removeItem(AUTH_STORAGE_KEY);
+    clearStoredSession();
     setAuthMessage("Sesion cerrada.");
     setProfileDisplayName("");
     setProfileEmail("");
@@ -2695,10 +1720,10 @@ export function BoosterMarket({
     setStockMessage("");
 
     try {
-      const response = await fetch(localApiUrl("/api/admin/stock"), {
+      const response = await apiFetch("/api/admin/stock", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${session.token}`,
+          ...authHeader(session),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ card, quantity }),
@@ -2839,12 +1864,12 @@ export function BoosterMarket({
     setStockMessage("");
 
     try {
-      const response = await fetch(
-        localApiUrl(`/api/admin/stock/${encodeURIComponent(stockItem.id)}`),
+      const response = await apiFetch(
+        `/api/admin/stock/${encodeURIComponent(stockItem.id)}`,
         {
           method: "PUT",
           headers: {
-            Authorization: `Bearer ${session.token}`,
+            ...authHeader(session),
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ quantity }),
@@ -2913,12 +1938,12 @@ export function BoosterMarket({
     setStockEditError("");
 
     try {
-      const response = await fetch(
-        localApiUrl(`/api/admin/stock/${encodeURIComponent(stockEditor.id)}`),
+      const response = await apiFetch(
+        `/api/admin/stock/${encodeURIComponent(stockEditor.id)}`,
         {
           method: "PUT",
           headers: {
-            Authorization: `Bearer ${session.token}`,
+            ...authHeader(session),
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -3006,10 +2031,10 @@ export function BoosterMarket({
     setWalletMessage("");
 
     try {
-      const response = await fetch(localApiUrl("/api/wallet/topup"), {
+      const response = await apiFetch("/api/wallet/topup", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${session.token}`,
+          ...authHeader(session),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ amount }),
@@ -3088,10 +2113,10 @@ export function BoosterMarket({
     setWonCardsMessage("");
 
     try {
-      const response = await fetch(localApiUrl("/api/upgrader/play"), {
+      const response = await apiFetch("/api/upgrader/play", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${session.token}`,
+          ...authHeader(session),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -3226,10 +2251,10 @@ export function BoosterMarket({
     setChangerSaving(true);
     setChangerOutcome(null);
     try {
-      const response = await fetch(localApiUrl("/api/changer/play"), {
+      const response = await apiFetch("/api/changer/play", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${session.token}`,
+          ...authHeader(session),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -3276,12 +2301,12 @@ export function BoosterMarket({
     setWonCardsMessage("");
 
     try {
-      const response = await fetch(
-        localApiUrl(`/api/me/cards/${encodeURIComponent(cardId)}/sell`),
+      const response = await apiFetch(
+        `/api/me/cards/${encodeURIComponent(cardId)}/sell`,
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${session.token}`,
+            ...authHeader(session),
           },
         },
       );
@@ -3329,12 +2354,12 @@ export function BoosterMarket({
     setWonCardsMessage("");
 
     try {
-      const response = await fetch(
-        localApiUrl(`/api/me/cards/${encodeURIComponent(cardId)}/withdraw`),
+      const response = await apiFetch(
+        `/api/me/cards/${encodeURIComponent(cardId)}/withdraw`,
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${session.token}`,
+            ...authHeader(session),
           },
         },
       );
@@ -3399,10 +2424,10 @@ export function BoosterMarket({
     let nextApiStatus: ApiStatus = "offline";
 
     try {
-      const response = await fetch(localApiUrl("/api/packs"), {
+      const response = await apiFetch("/api/packs", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${session.token}`,
+          ...authHeader(session),
           "Content-Type": "application/json",
         },
         body: JSON.stringify(pack),
@@ -3448,10 +2473,10 @@ export function BoosterMarket({
     let nextApiStatus: ApiStatus = "offline";
 
     try {
-      const response = await fetch(localApiUrl(`/api/packs/${encodeURIComponent(packId)}`), {
+      const response = await apiFetch(`/api/packs/${encodeURIComponent(packId)}`, {
         method: "DELETE",
         headers: {
-          Authorization: `Bearer ${session.token}`,
+          ...authHeader(session),
         },
       });
       const payload = (await response.json()) as { error?: string };
@@ -3487,10 +2512,10 @@ export function BoosterMarket({
     setProfileMessage("");
 
     try {
-      const response = await fetch(localApiUrl("/api/me"), {
+      const response = await apiFetch("/api/me", {
         method: "PUT",
         headers: {
-          Authorization: `Bearer ${session.token}`,
+          ...authHeader(session),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -3849,12 +2874,12 @@ export function BoosterMarket({
         return;
       }
 
-      const response = await fetch(
-        localApiUrl(`/api/packs/${encodeURIComponent(selectedPack.id)}/open`),
+      const response = await apiFetch(
+        `/api/packs/${encodeURIComponent(selectedPack.id)}/open`,
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${session.token}`,
+            ...authHeader(session),
           },
         },
       );
@@ -7807,548 +6832,5 @@ export function BoosterMarket({
         />
       )}
     </main>
-  );
-}
-
-function SortControl({
-  ariaLabel,
-  onChange,
-  options,
-  value,
-}: {
-  ariaLabel: string;
-  onChange: (value: string) => void;
-  options: Array<{ label: string; value: string }>;
-  value: string;
-}) {
-  return (
-    <div className="sort-control">
-      <ArrowUpDown aria-hidden size={17} />
-      <span>Ordenar</span>
-      <div className="sort-select">
-        <select
-          aria-label={ariaLabel}
-          onChange={(event) => onChange(event.target.value)}
-          value={value}
-        >
-          {options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <ChevronDown aria-hidden size={16} />
-      </div>
-    </div>
-  );
-}
-
-function SearchConsole({
-  actionLabel,
-  infinite = false,
-  onCardAction,
-  onLoadMore,
-  onSearch,
-  search,
-  setSearch,
-}: {
-  actionLabel: string;
-  infinite?: boolean;
-  onCardAction: (card: ExternalCard) => void;
-  onLoadMore?: () => void;
-  onSearch: (override?: Partial<SearchState>) => void;
-  search: SearchState;
-  setSearch: React.Dispatch<React.SetStateAction<SearchState>>;
-}) {
-  const loadMoreRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const sentinel = loadMoreRef.current;
-
-    if (
-      !infinite ||
-      !sentinel ||
-      !onLoadMore ||
-      !search.hasMore ||
-      search.loading ||
-      search.loadingMore
-    ) {
-      return;
-    }
-
-    const scrollContainer = sentinel.closest(".result-grid");
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          onLoadMore();
-        }
-      },
-      {
-        root: scrollContainer,
-        rootMargin: "220px 0px",
-        threshold: 0.01,
-      },
-    );
-
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [infinite, onLoadMore, search.hasMore, search.loading, search.loadingMore]);
-
-  return (
-    <div className={`search-console ${infinite ? "infinite-search" : ""}`}>
-      <div className="source-tabs" aria-label="Fuente de cartas">
-        {cardGames.map((game) => (
-          <button
-            className={search.game === game ? "active" : ""}
-            key={game}
-            onClick={() =>
-              setSearch((current) =>
-                current.game === game ? current : newSearchState(game, ""),
-              )
-            }
-            type="button"
-          >
-            {gameLabels[game]}
-          </button>
-        ))}
-      </div>
-
-      <div className="search-row">
-        <label>
-          Buscar carta
-          <input
-            onChange={(event) =>
-              setSearch((current) => ({ ...current, query: event.target.value }))
-            }
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                onSearch();
-              }
-            }}
-            placeholder="Ej: Squirtle, Luffy, Lightning Bolt"
-            type="search"
-            value={search.query}
-          />
-        </label>
-        <label>
-          Set
-          <input
-            onChange={(event) =>
-              setSearch((current) => ({ ...current, setName: event.target.value }))
-            }
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                onSearch();
-              }
-            }}
-            placeholder="Ej: Stellar Crown, OP13, MH3"
-            value={search.setName}
-          />
-        </label>
-        <label>
-          Numero
-          <input
-            onChange={(event) =>
-              setSearch((current) => ({ ...current, number: event.target.value }))
-            }
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                onSearch();
-              }
-            }}
-            placeholder="Ej: 148, 001"
-            value={search.number}
-          />
-        </label>
-        <label>
-          Rareza
-          <input
-            onChange={(event) =>
-              setSearch((current) => ({ ...current, rarity: event.target.value }))
-            }
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                onSearch();
-              }
-            }}
-            placeholder="Ej: Common, C, Rare Holo"
-            value={search.rarity}
-          />
-        </label>
-        <button
-          className="search-button"
-          disabled={search.loading}
-          onClick={() => onSearch()}
-          type="button"
-        >
-          <Search size={18} aria-hidden />
-          {search.loading ? "Buscando" : "Buscar"}
-        </button>
-      </div>
-
-      {infinite && (
-        <div className="search-results-toolbar">
-          <SortControl
-            ariaLabel="Ordenar resultados"
-            onChange={(value) => {
-              const sort = value as SearchState["sort"];
-              setSearch((current) => ({ ...current, sort }));
-
-              if (
-                search.query.trim().length >= 2 ||
-                search.setName.trim().length >= 2
-              ) {
-                onSearch({ sort });
-              }
-            }}
-            options={[
-              { value: "relevance", label: "Relevancia" },
-              { value: "price-asc", label: "Precio: menor a mayor" },
-              { value: "price-desc", label: "Precio: mayor a menor" },
-              { value: "number-desc", label: "Numero: mayor a menor" },
-            ]}
-            value={search.sort}
-          />
-        </div>
-      )}
-
-      {search.error && <p className="search-error">{search.error}</p>}
-
-      <div className="result-grid" aria-live="polite">
-        {search.loading ? (
-          <div className="search-loader" role="status">
-            <div className="loader-orbit" aria-hidden>
-              <span />
-            </div>
-            <div>
-              <strong>Buscando cartas</strong>
-              <p>
-                Consultando imagenes y precios
-                {search.setName.trim()
-                  ? ` en ${search.setName.trim()}`
-                  : ` para ${gameLabels[search.game]}`}
-                .
-              </p>
-            </div>
-          </div>
-        ) : (
-          search.results.map((card) => (
-            <article className="market-card" key={`${card.game}-${card.id}`}>
-              <button
-                className="card-face"
-                onClick={() => onCardAction(card)}
-                title={actionLabel}
-                type="button"
-              >
-                <img
-                  src={cardImage(card)}
-                  alt=""
-                  loading="lazy"
-                  onError={handleImageError(card.game)}
-                />
-              </button>
-              <button
-                className="card-summary"
-                onClick={() => onCardAction(card)}
-                type="button"
-              >
-                <span>{gameLabels[card.game]}</span>
-                <h3>{card.name}</h3>
-                <p>
-                  {card.setName}
-                  {card.number ? ` #${card.number}` : ""}
-                </p>
-                <strong>
-                  {typeof card.priceUsd === "number"
-                    ? formatUsd.format(card.priceUsd)
-                    : "Sin precio"}
-                </strong>
-                <small>
-                  {card.priceSource}
-                  {card.updatedAt ? ` - ${card.updatedAt}` : ""}
-                </small>
-              </button>
-              <button
-                aria-label={`${actionLabel} ${card.name}`}
-                className="card-action"
-                onClick={() => onCardAction(card)}
-                title={actionLabel}
-                type="button"
-              >
-                {actionLabel === "Detalles" ? (
-                  <Eye size={18} aria-hidden />
-                ) : (
-                  <Plus size={18} aria-hidden />
-                )}
-              </button>
-            </article>
-          ))
-        )}
-        {infinite && !search.loading && search.results.length > 0 && (
-          <div className="infinite-search-status" ref={loadMoreRef}>
-            {search.loadingMore ? (
-              <>
-                <span className="mini-spinner" aria-hidden />
-                <strong>Cargando mas cartas</strong>
-              </>
-            ) : search.hasMore ? (
-              <span>Continua desplazandote para ver mas</span>
-            ) : (
-              <span>Llegaste al final de los resultados</span>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function CardModal({
-  card,
-  onClose,
-}: {
-  card: ExternalCard;
-  onClose: () => void;
-}) {
-  const [focusedCardId, setFocusedCardId] = useState(card.id);
-  const [variantGroups, setVariantGroups] = useState<CardLanguageGroup[]>(() =>
-    isCardPrize(card) ? [] : [singleCardLanguageGroup(card)],
-  );
-  const [variantsLoading, setVariantsLoading] = useState(isCardPrize(card));
-  const [variantsError, setVariantsError] = useState("");
-  const loadingSteps = useMemo(() => variantLoadingSteps(card.game), [card.game]);
-  const [loadingStepIndex, setLoadingStepIndex] = useState(0);
-
-  useEffect(() => {
-    if (!isCardPrize(card)) {
-      return;
-    }
-
-    const controller = new AbortController();
-
-    void fetch("/api/cards/variants", {
-      body: JSON.stringify({ card }),
-      headers: {
-        "Content-Type": "application/json",
-      },
-      method: "POST",
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const payload = (await response.json()) as VariantsResponse;
-
-        if (!response.ok || payload.error) {
-          throw new Error(payload.error ?? "No se pudieron cargar versiones.");
-        }
-
-        setVariantGroups(
-          payload.groups?.length ? payload.groups : [singleCardLanguageGroup(card)],
-        );
-      })
-      .catch((error) => {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          return;
-        }
-
-        setVariantsError(
-          error instanceof Error
-            ? error.message
-            : "No se pudieron cargar versiones.",
-        );
-        setVariantGroups([singleCardLanguageGroup(card)]);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setVariantsLoading(false);
-        }
-      });
-
-    return () => controller.abort();
-  }, [card]);
-
-  useEffect(() => {
-    if (!variantsLoading) {
-      return;
-    }
-
-    const timer = window.setInterval(() => {
-      setLoadingStepIndex((current) =>
-        Math.min(current + 1, loadingSteps.length - 1),
-      );
-    }, 950);
-
-    return () => window.clearInterval(timer);
-  }, [loadingSteps.length, variantsLoading]);
-
-  const relatedVersions = useMemo(
-    () => variantGroups.flatMap((group) => group.cards),
-    [variantGroups],
-  );
-  const focusedCard =
-    relatedVersions.find((version) => version.id === focusedCardId) ?? card;
-  const languageCount = variantGroups.length;
-  const variantCount = relatedVersions.length;
-
-  return (
-    <div
-      className="modal-backdrop"
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          onClose();
-        }
-      }}
-      role="presentation"
-    >
-      <article
-        aria-labelledby="card-modal-title"
-        aria-modal="true"
-        className="card-modal"
-        role="dialog"
-      >
-        <button
-          aria-label="Cerrar detalles"
-          className="modal-close"
-          onClick={onClose}
-          type="button"
-        >
-          <X size={18} aria-hidden />
-        </button>
-        <img
-          src={cardImage(focusedCard)}
-          alt=""
-          onError={handleImageError(focusedCard.game)}
-        />
-        <div className="modal-copy">
-          <span className="eyebrow">
-            {gameLabels[focusedCard.game]} - {prizeTypeLabels[itemTypeOf(focusedCard)]}
-          </span>
-          <h2 id="card-modal-title">{focusedCard.name}</h2>
-          <strong className="modal-price">
-            {typeof focusedCard.priceUsd === "number"
-              ? formatUsd.format(focusedCard.priceUsd)
-              : "Sin precio"}
-          </strong>
-          <dl>
-            <div>
-              <dt>{isCardPrize(focusedCard) ? "Set" : "Expansion"}</dt>
-              <dd>{focusedCard.setName}</dd>
-            </div>
-            {isCardPrize(focusedCard) && (
-              <div>
-                <dt>Numero</dt>
-                <dd>{focusedCard.number ?? "N/D"}</dd>
-              </div>
-            )}
-            <div>
-              <dt>{isCardPrize(focusedCard) ? "Rareza" : "Tipo"}</dt>
-              <dd>
-                {isCardPrize(focusedCard)
-                  ? focusedCard.rarity ?? "N/D"
-                  : prizeTypeLabels[itemTypeOf(focusedCard)]}
-              </dd>
-            </div>
-            <div>
-              <dt>Fuente</dt>
-              <dd>{focusedCard.priceSource}</dd>
-            </div>
-            <div>
-              <dt>Actualizado</dt>
-              <dd>{focusedCard.updatedAt ?? "N/D"}</dd>
-            </div>
-          </dl>
-          {focusedCard.sourceUrl && (
-            <a href={focusedCard.sourceUrl} rel="noreferrer" target="_blank">
-              Abrir fuente
-            </a>
-          )}
-
-          {isCardPrize(card) && (
-          <section className="modal-versions" aria-label="Versiones relacionadas">
-            <div className="modal-versions-heading">
-              <h3>Misma carta por idioma</h3>
-              <span>
-                {variantsLoading
-                  ? "Buscando"
-                  : `${languageCount} idiomas / ${variantCount} versiones`}
-              </span>
-            </div>
-            {card.game === "pokemon" && (
-              <p className="variant-note">
-                En Pokemon, las cartas de otros idiomas no siempre conservan el
-                mismo numero dentro de la expansion. El buscador cruza set,
-                numero y datos de la carta para acercarse a la version correcta,
-                pero puede mostrar coincidencias cercanas.
-              </p>
-            )}
-            {variantsError && <p className="variant-error">{variantsError}</p>}
-            {variantsLoading ? (
-              <div className="variant-loader" role="status">
-                <div className="loader-orbit" aria-hidden>
-                  <span />
-                </div>
-                <div>
-                  <strong>{loadingSteps[loadingStepIndex]}</strong>
-                  <p>Comparando la carta exacta entre idiomas disponibles.</p>
-                </div>
-                <ol className="loader-steps">
-                  {loadingSteps.map((step, index) => (
-                    <li
-                      className={index <= loadingStepIndex ? "active" : ""}
-                      key={step}
-                    >
-                      {step}
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            ) : (
-              <div className="version-list">
-                {variantGroups.map((group) => (
-                  <section className="language-group" key={group.language}>
-                    <div className="language-title">
-                      <strong>{group.label}</strong>
-                      <small>{group.cards.length}</small>
-                    </div>
-                    {group.cards.map((version) => (
-                      <button
-                        className={
-                          version.id === focusedCard.id
-                            ? "version-row active"
-                            : "version-row"
-                        }
-                        key={`${version.game}-${version.id}`}
-                        onClick={() => setFocusedCardId(version.id)}
-                        type="button"
-                      >
-                        <img
-                          src={cardImage(version)}
-                          alt=""
-                          loading="lazy"
-                          onError={handleImageError(version.game)}
-                        />
-                        <span>
-                          <strong>{version.name}</strong>
-                          <small>
-                            {version.setName}
-                            {version.number ? ` #${version.number}` : ""}
-                          </small>
-                          <em>{version.rarity ?? "Sin rareza"}</em>
-                        </span>
-                        <b>
-                          {typeof version.priceUsd === "number"
-                            ? formatUsd.format(version.priceUsd)
-                            : "Sin precio"}
-                        </b>
-                      </button>
-                    ))}
-                  </section>
-                ))}
-              </div>
-            )}
-          </section>
-          )}
-        </div>
-      </article>
-    </div>
   );
 }
