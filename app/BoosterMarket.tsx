@@ -4,6 +4,14 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import type { CardGame, PrizeItemType } from "./lib/card-search";
+import { AdminDashboardSection } from "./market/admin/AdminDashboardSection";
+import { AdminPacksSection } from "./market/admin/AdminPacksSection";
+import {
+  AdminShellHeader,
+  SellerRequiredPanel,
+  StockFilterControls,
+} from "./market/admin/AdminShell";
+import { StockItemCard } from "./market/admin/StockItemCard";
 import { AuthModal } from "./market/auth/AuthPanel";
 import {
   cardImage,
@@ -21,9 +29,7 @@ import {
   isSellerRole,
   itemTypeOf,
   orderStatusLabels,
-  prizeItemTypes,
   prizeTypeLabels,
-  prizeTypeShortLabels,
 } from "./market/catalog";
 import { ChangerSection } from "./market/changer/ChangerSection";
 import { SearchConsole } from "./market/components/SearchConsole";
@@ -38,32 +44,26 @@ import { AppHeader } from "./market/layout/AppHeader";
 import { NoticeToast } from "./market/layout/NoticeToast";
 import { SiteFooter } from "./market/layout/SiteFooter";
 import { MarketContext } from "./market/MarketContext";
-import { normalizedProbability, normalizeItems } from "./market/pack-math";
+import { normalizedProbability } from "./market/pack-math";
 import { ProfileSection } from "./market/profile/ProfileSection";
 import { WalletModal } from "./market/profile/WalletModal";
 import { WonCardsModal } from "./market/profile/WonCardsModal";
-import type { AppView, PackGame, ShopStockItem } from "./market/types";
+import type { AppView } from "./market/types";
 import { UpgraderSection } from "./market/upgrader/UpgraderSection";
 import { useMarketState } from "./market/useMarketState";
 import {
   ArrowLeft,
   Boxes,
   CircleCheck,
-  Database,
   Dice5,
   Eye,
   Home,
-  LogIn,
-  PackageOpen,
-  Pencil,
   Plus,
   RotateCcw,
   Save,
   Search,
   Send,
-  Settings,
   Sparkles,
-  Trash2,
   Trophy,
   Truck,
   User,
@@ -80,16 +80,12 @@ export function BoosterMarket({
   const market = useMarketState({ initialPackId, view });
   const {
     activeShipmentGroups,
-    activeShipments,
-    addCardToDraft,
     addCardToStock,
     addSealedProductToStock,
     adminInventoryActiveOnly,
     adminInventoryMaxPrice,
     adminInventoryMinPrice,
     adminInventorySort,
-    adminMessage,
-    adminSaving,
     adminSearch,
     adminUserQuery,
     adminUsers,
@@ -100,17 +96,6 @@ export function BoosterMarket({
     apiStatus,
     authMessage,
     celebratingRunId,
-    deleteSavedPack,
-    draftExpectedValue,
-    draftGame,
-    draftItems,
-    draftMargin,
-    draftName,
-    draftPrice,
-    draftPriceSort,
-    draftProbabilityTotal,
-    draftSeries,
-    editingPackId,
     filteredShopStock,
     groupedShopOrders,
     idleRouletteItems,
@@ -125,18 +110,11 @@ export function BoosterMarket({
     markShipmentReceived,
     openingPack,
     openPack,
-    openStockEditor,
     ordersMessage,
-    packBuilderStock,
-    packPrizeFilter,
-    packStockGameFilter,
     recentDrops,
     recentDropsLoading,
-    removeDraftItem,
-    resetDraftPack,
     rouletteTrackRef,
     runSearch,
-    saveDraftPack,
     saveStockDetails,
     sealedGame,
     sealedImageUrl,
@@ -158,7 +136,6 @@ export function BoosterMarket({
     selectedShipmentUserId,
     selectedTopItem,
     selectSealedSearchResult,
-    sellerPacks,
     session,
     setAdminInventoryActiveOnly,
     setAdminInventoryMaxPrice,
@@ -167,15 +144,7 @@ export function BoosterMarket({
     setAdminSearch,
     setAdminUserQuery,
     setAdminUserView,
-    setDraftGame,
-    setDraftItems,
-    setDraftName,
-    setDraftPrice,
-    setDraftPriceSort,
-    setDraftSeries,
     setManualSealedOpen,
-    setPackPrizeFilter,
-    setPackStockGameFilter,
     setSealedGame,
     setSealedImageUrl,
     setSealedName,
@@ -193,9 +162,6 @@ export function BoosterMarket({
     setStockEditImageUrl,
     setStockEditor,
     setStockEditPrice,
-    setStockGameFilter,
-    setStockPrizeFilter,
-    setStockQuantityDrafts,
     shipmentBusyKey,
     shipmentHistoryGroups,
     shipmentsMessage,
@@ -203,26 +169,14 @@ export function BoosterMarket({
     shipmentView,
     shippingModalOpen,
     shippingOrders,
-    shopStock,
     showCardDetails,
-    sortedDraftItems,
-    startEditingPack,
-    stockBusyId,
-    stockCountsByGame,
-    stockCountsByType,
     stockEditError,
     stockEditImageUrl,
     stockEditor,
     stockEditPrice,
     stockEditSaving,
-    stockGameFilter,
     stockMessage,
-    stockPrizeFilter,
-    stockQuantityDrafts,
-    stockQuantityForCard,
     toggleShipmentSelection,
-    updateDraftProbability,
-    updateStockQuantity,
     visibleAdminUserCards,
     visibleRouletteItems,
     visibleRouletteOffset,
@@ -526,345 +480,9 @@ export function BoosterMarket({
     </section>
   );
 
-  const adminNavigation = isSellerRole(session?.role) ? (
-    <nav className="admin-nav" aria-label="Secciones de administracion">
-      <Link className={view === "admin" ? "active" : ""} href="/admin">
-        <Settings size={16} aria-hidden />
-        Resumen
-      </Link>
-      <Link
-        className={view === "admin-stock" ? "active" : ""}
-        href="/admin/stock"
-      >
-        <Database size={16} aria-hidden />
-        Stock
-      </Link>
-      <Link
-        className={view === "admin-packs" ? "active" : ""}
-        href="/admin/packs"
-      >
-        <PackageOpen size={16} aria-hidden />
-        Cajas
-      </Link>
-      <Link
-        className={view === "admin-orders" ? "active" : ""}
-        href="/admin/orders"
-      >
-        <Trophy size={16} aria-hidden />
-        Pedidos
-      </Link>
-      <Link
-        className={view === "admin-shipments" ? "active" : ""}
-        href="/admin/shipments"
-      >
-        <Truck size={16} aria-hidden />
-        Envios activos
-      </Link>
-      <Link
-        className={view === "admin-users" ? "active" : ""}
-        href="/admin/users"
-      >
-        <User size={16} aria-hidden />
-        Inventarios
-      </Link>
-    </nav>
-  ) : null;
-
-  const adminShellHeader = (
-    <div className="admin-intro">
-      <span className="eyebrow">
-        Administrador local
-      </span>
-      <h1>
-        {view === "admin-stock"
-          ? "Gestionar stock"
-          : view === "admin-packs"
-            ? "Crear cajas"
-            : view === "admin-orders"
-              ? "Envios pendientes"
-              : view === "admin-shipments"
-                ? "Envios activos"
-                : view === "admin-users"
-                  ? "Inventarios de usuarios"
-              : "Panel administrador"}
-      </h1>
-      <p>
-        {view === "admin-stock"
-          ? "Carga cartas y productos sellados al stock y separalos por TCG antes de armar cajas."
-          : view === "admin-packs"
-            ? "Arma y edita cajas usando unicamente premios disponibles en tu stock."
-            : view === "admin-orders"
-              ? "Gestiona unicamente los retiros confirmados que todavia deben enviarse."
-              : view === "admin-shipments"
-                ? "Sigue los paquetes despachados y guarda la confirmacion cuando el usuario los recibe."
-                : view === "admin-users"
-                  ? "Busca usuarios y revisa el historial completo de premios de cada cuenta."
-              : "Administra stock, cajas publicadas y premios ganados por usuarios desde secciones separadas."}
-      </p>
-      {adminNavigation}
-      {view === "admin-packs" && adminMessage && (
-        <p className="admin-message">{adminMessage}</p>
-      )}
-    </div>
-  );
-
-  const sellerRequiredPanel = (
-    <div className="login-panel">
-      <span className="eyebrow">Administracion protegida</span>
-      <h3>Entra como administrador desde la pagina principal</h3>
-      <Link className="primary-action compact" href="/">
-        <LogIn size={17} aria-hidden />
-        Ir al login
-      </Link>
-    </div>
-  );
-
-  const stockFilterControls = (
-    <div className="stock-filter-stack">
-      <div className="stock-type-tabs" aria-label="Filtro de stock por TCG">
-        <button
-          className={stockGameFilter === "mixed" ? "active" : ""}
-          onClick={() => setStockGameFilter("mixed")}
-          type="button"
-        >
-          Todos <span>{shopStock.length}</span>
-        </button>
-        {cardGames.map((game) => (
-          <button
-            className={stockGameFilter === game ? "active" : ""}
-            key={game}
-            onClick={() => setStockGameFilter(game)}
-            type="button"
-          >
-            {gameLabels[game]} <span>{stockCountsByGame[game]}</span>
-          </button>
-        ))}
-      </div>
-      <div className="stock-type-tabs" aria-label="Filtro por tipo de premio">
-        <button
-          className={stockPrizeFilter === "all" ? "active" : ""}
-          onClick={() => setStockPrizeFilter("all")}
-          type="button"
-        >
-          Todo tipo
-        </button>
-        {prizeItemTypes.map((itemType) => (
-          <button
-            className={stockPrizeFilter === itemType ? "active" : ""}
-            key={itemType}
-            onClick={() => setStockPrizeFilter(itemType)}
-            type="button"
-          >
-            {prizeTypeShortLabels[itemType]}{" "}
-            <span>{stockCountsByType[itemType]}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-
-  const renderStockItem = (stockItem: ShopStockItem, withPackAction = false) => {
-    const draftQuantity = stockQuantityDrafts[stockItem.id];
-    const parsedDraftQuantity = Number(draftQuantity);
-    const visibleStockQuantity =
-      draftQuantity !== undefined &&
-      draftQuantity.trim() !== "" &&
-      Number.isFinite(parsedDraftQuantity)
-        ? Math.max(0, Math.floor(parsedDraftQuantity))
-        : stockItem.quantity;
-    const isInDraft = draftItems.some(
-      (item) =>
-        item.card.id === stockItem.card.id &&
-        item.card.game === stockItem.card.game &&
-        itemTypeOf(item.card) === itemTypeOf(stockItem.card),
-    );
-
-    return (
-      <article
-      className={`stock-item ${itemTypeOf(stockItem.card)}`}
-      key={stockItem.id}
-      >
-      <button
-        className="stock-image-button"
-        onClick={() => showCardDetails(stockItem.card)}
-        type="button"
-      >
-        <img
-          src={cardImage(stockItem.card)}
-          alt=""
-          onError={handleImageError(stockItem.card.game)}
-        />
-      </button>
-      <div className="stock-item-copy">
-        <span className={`prize-type-chip ${itemTypeOf(stockItem.card)}`}>
-          {prizeTypeLabels[itemTypeOf(stockItem.card)]}
-        </span>
-        <strong>{stockItem.card.name}</strong>
-        <small>
-          {formatUsd.format(stockItem.card.priceUsd ?? 0)} -{" "}
-          {gameLabels[stockItem.card.game]}
-        </small>
-        <span>
-          {stockItem.card.setName}
-          {stockItem.card.number ? ` #${stockItem.card.number}` : ""}
-        </span>
-      </div>
-      <div className="stock-actions">
-        <label className="stock-quantity-control">
-          <span>Stock</span>
-          <input
-            aria-label={`Stock de ${stockItem.card.name}`}
-            disabled={stockBusyId === stockItem.id}
-            inputMode="numeric"
-            min="0"
-            onBlur={(event) => {
-              if (event.currentTarget.value.trim() === "") {
-                setStockQuantityDrafts((current) => {
-                  const next = { ...current };
-                  delete next[stockItem.id];
-                  return next;
-                });
-                return;
-              }
-              const quantity = Math.max(
-                0,
-                Math.floor(Number(event.currentTarget.value)),
-              );
-              if (Number.isFinite(quantity) && quantity !== stockItem.quantity) {
-                void updateStockQuantity(stockItem, quantity);
-              } else {
-                setStockQuantityDrafts((current) => {
-                  const next = { ...current };
-                  delete next[stockItem.id];
-                  return next;
-                });
-              }
-            }}
-            onChange={(event) =>
-              setStockQuantityDrafts((current) => ({
-                ...current,
-                [stockItem.id]: event.target.value,
-              }))
-            }
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.currentTarget.blur();
-              }
-            }}
-            step="1"
-            type="number"
-            value={stockQuantityDrafts[stockItem.id] ?? stockItem.quantity}
-          />
-        </label>
-        <div className="stock-stepper-buttons">
-          <button
-            aria-label={`Restar stock de ${stockItem.card.name}`}
-            disabled={stockBusyId === stockItem.id || visibleStockQuantity <= 0}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() =>
-              void updateStockQuantity(stockItem, visibleStockQuantity - 1)
-            }
-            title="Restar stock"
-            type="button"
-          >
-            -
-          </button>
-          <button
-            aria-label={`Sumar stock de ${stockItem.card.name}`}
-            disabled={stockBusyId === stockItem.id}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() =>
-              void updateStockQuantity(stockItem, visibleStockQuantity + 1)
-            }
-            title="Sumar stock"
-            type="button"
-          >
-            <Plus size={16} aria-hidden />
-          </button>
-        </div>
-        <button
-          aria-label={`Editar ${stockItem.card.name}`}
-          className="stock-edit-button"
-          disabled={stockBusyId === stockItem.id}
-          onClick={() => openStockEditor(stockItem)}
-          type="button"
-        >
-          <Pencil size={15} aria-hidden />
-          Editar
-        </button>
-        {withPackAction && (
-          <button
-            className={`stock-add-pack${isInDraft ? " in-pack" : ""}`}
-            disabled={stockItem.quantity <= 0 || isInDraft}
-            onClick={() => addCardToDraft(stockItem.card)}
-            type="button"
-          >
-            {isInDraft ? (
-              <>
-                <CircleCheck size={16} aria-hidden />
-                En la caja
-              </>
-            ) : (
-              <>
-                <Plus size={16} aria-hidden />
-                A la caja
-              </>
-            )}
-          </button>
-        )}
-      </div>
-      </article>
-    );
-  };
-
-  const adminDashboardSection = (
-    <section className="admin-band page-section" aria-label="Panel administrador">
-      {adminShellHeader}
-      {isSellerRole(session?.role) ? (
-        <div className="admin-dashboard-grid">
-          <Link className="admin-dashboard-card" href="/admin/stock">
-            <Database size={30} aria-hidden />
-            <span className="eyebrow">Stock</span>
-            <strong>{shopStock.length} productos cargados</strong>
-            <small>
-              One Piece {stockCountsByGame["one-piece"]} - Pokemon{" "}
-              {stockCountsByGame.pokemon} - Magic {stockCountsByGame.magic}
-            </small>
-          </Link>
-          <Link className="admin-dashboard-card" href="/admin/packs">
-            <PackageOpen size={30} aria-hidden />
-            <span className="eyebrow">Cajas</span>
-            <strong>{sellerPacks.length} cajas publicadas</strong>
-            <small>Crear, editar y normalizar probabilidades.</small>
-          </Link>
-          <Link className="admin-dashboard-card" href="/admin/orders">
-            <Trophy size={30} aria-hidden />
-            <span className="eyebrow">Pedidos</span>
-            <strong>{withdrawnOrderCount} retiros por enviar</strong>
-            <small>Confirma despachos y registra numeros de seguimiento.</small>
-          </Link>
-          <Link className="admin-dashboard-card" href="/admin/shipments">
-            <Truck size={30} aria-hidden />
-            <span className="eyebrow">Envios activos</span>
-            <strong>{activeShipments.length} premios en camino</strong>
-            <small>Confirma recepciones y consulta entregas anteriores.</small>
-          </Link>
-          <Link className="admin-dashboard-card" href="/admin/users">
-            <User size={30} aria-hidden />
-            <span className="eyebrow">Inventarios</span>
-            <strong>{adminUsers.length} usuarios cargados</strong>
-            <small>Busca cuentas y revisa premios activos o historicos.</small>
-          </Link>
-        </div>
-      ) : (
-        sellerRequiredPanel
-      )}
-    </section>
-  );
-
   const adminStockSection = (
     <section className="admin-band page-section" aria-label="Stock de Pullario">
-      {adminShellHeader}
+      <AdminShellHeader />
       {isSellerRole(session?.role) ? (
         <div className="stock-page-grid">
           <div className="stock-entry-column">
@@ -1091,11 +709,13 @@ export function BoosterMarket({
                 Refrescar
               </button>
             </div>
-            {stockFilterControls}
+            <StockFilterControls />
             {stockMessage && <p className="admin-message">{stockMessage}</p>}
             <div className="stock-list expanded">
               {filteredShopStock.length ? (
-                filteredShopStock.map((stockItem) => renderStockItem(stockItem))
+                filteredShopStock.map((stockItem) => (
+                  <StockItemCard key={stockItem.id} stockItem={stockItem} />
+                ))
               ) : (
                 <p>
                   No hay productos en este filtro. Busca una carta o carga un
@@ -1106,314 +726,14 @@ export function BoosterMarket({
           </div>
         </div>
       ) : (
-        sellerRequiredPanel
-      )}
-    </section>
-  );
-
-  const adminPacksSection = (
-    <section className="admin-band page-section" aria-label="Crear cajas">
-      {adminShellHeader}
-      {isSellerRole(session?.role) ? (
-        <>
-          <div className="admin-grid packs-grid">
-            <div className="admin-form">
-              <div className={`pack-editor-heading${editingPackId ? " editing" : ""}`}>
-                <div className="pack-editor-icon" aria-hidden>
-                  {editingPackId ? <Pencil size={19} /> : <Plus size={19} />}
-                </div>
-                <div>
-                  <span>{editingPackId ? "Editando caja" : "Nueva caja"}</span>
-                  <strong>
-                    {editingPackId ? draftName || "Sin nombre" : "Configura sus datos"}
-                  </strong>
-                </div>
-                {editingPackId && (
-                  <button
-                    aria-label="Cancelar edicion"
-                    onClick={resetDraftPack}
-                    title="Cancelar edicion"
-                    type="button"
-                  >
-                    <X size={17} aria-hidden />
-                  </button>
-                )}
-              </div>
-              <label>
-                Nombre de la caja
-                <input
-                  onChange={(event) => setDraftName(event.target.value)}
-                  value={draftName}
-                />
-              </label>
-              <label>
-                Serie
-                <input
-                  onChange={(event) => setDraftSeries(event.target.value)}
-                  value={draftSeries}
-                />
-              </label>
-              <label>
-                Juego
-                <select
-                  onChange={(event) => setDraftGame(event.target.value as PackGame)}
-                  value={draftGame}
-                >
-                  <option value="mixed">Mixto</option>
-                  <option value="one-piece">One Piece</option>
-                  <option value="pokemon">Pokemon</option>
-                  <option value="magic">Magic</option>
-                </select>
-              </label>
-              <label>
-                Precio USD
-                <input
-                  min="0"
-                  onChange={(event) => setDraftPrice(Number(event.target.value))}
-                  step="0.01"
-                  type="number"
-                  value={draftPrice}
-                />
-              </label>
-
-              <div className="admin-metrics">
-                <span>
-                  <small>Premios</small>
-                  <strong>{draftItems.length}</strong>
-                </span>
-                <span>
-                  <small>Prob.</small>
-                  <strong>{formatPercent.format(draftProbabilityTotal)}%</strong>
-                </span>
-                <span>
-                  <small>EV</small>
-                  <strong>{formatUsd.format(draftExpectedValue)}</strong>
-                </span>
-                <span className={draftMargin < 0 ? "negative" : ""}>
-                  <small>Margen</small>
-                  <strong>{formatUsd.format(draftMargin)}</strong>
-                </span>
-              </div>
-
-              <div className="admin-actions">
-                <button
-                  className="secondary-action compact"
-                  disabled={adminSaving}
-                  onClick={resetDraftPack}
-                  type="button"
-                >
-                  <Plus size={17} aria-hidden />
-                  Nueva caja
-                </button>
-                <button
-                  className="secondary-action compact"
-                  disabled={!draftItems.length || adminSaving}
-                  onClick={() =>
-                    setDraftItems((current) => normalizeItems(current, draftPrice))
-                  }
-                  type="button"
-                >
-                  <RotateCcw size={17} aria-hidden />
-                  Normalizar rentable
-                </button>
-                <button
-                  className="primary-action compact"
-                  disabled={!draftItems.length || !draftName.trim() || adminSaving}
-                  onClick={() => void saveDraftPack()}
-                  type="button"
-                >
-                  <Save size={17} aria-hidden />
-                  {adminSaving
-                    ? "Guardando"
-                    : editingPackId
-                      ? "Actualizar caja"
-                      : "Guardar caja"}
-                </button>
-              </div>
-            </div>
-
-            <div className="stock-panel pack-source-panel">
-              <div className="panel-heading">
-                <div>
-                  <span className="eyebrow">Premios disponibles</span>
-                  <h2>{packBuilderStock.length} en stock</h2>
-                </div>
-                <button
-                  className="secondary-action compact"
-                  onClick={() => void loadShopStock()}
-                  type="button"
-                >
-                  <RotateCcw size={16} aria-hidden />
-                  Refrescar
-                </button>
-              </div>
-              <div className="stock-type-tabs" aria-label="Filtro para armar caja">
-                <button
-                  className={packStockGameFilter === "mixed" ? "active" : ""}
-                  onClick={() => setPackStockGameFilter("mixed")}
-                  type="button"
-                >
-                  Todos
-                </button>
-                {cardGames.map((game) => (
-                  <button
-                    className={packStockGameFilter === game ? "active" : ""}
-                    key={game}
-                    onClick={() => setPackStockGameFilter(game)}
-                    type="button"
-                  >
-                    {gameLabels[game]}
-                  </button>
-                ))}
-              </div>
-              <div className="stock-type-tabs" aria-label="Tipo de premio para armar caja">
-                <button
-                  className={packPrizeFilter === "all" ? "active" : ""}
-                  onClick={() => setPackPrizeFilter("all")}
-                  type="button"
-                >
-                  Todo tipo
-                </button>
-                {prizeItemTypes.map((itemType) => (
-                  <button
-                    className={packPrizeFilter === itemType ? "active" : ""}
-                    key={itemType}
-                    onClick={() => setPackPrizeFilter(itemType)}
-                    type="button"
-                  >
-                    {prizeTypeShortLabels[itemType]}
-                  </button>
-                ))}
-              </div>
-              <div className="stock-list expanded">
-                {packBuilderStock.length ? (
-                  packBuilderStock.map((stockItem) =>
-                    renderStockItem(stockItem, true),
-                  )
-                ) : (
-                  <p>
-                    No hay stock compatible con esta caja. Cargalo desde la
-                    pagina de stock.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="draft-panel">
-              <div className="panel-heading">
-                <div>
-                  <span className="eyebrow">Premios de la caja</span>
-                  <h2>{draftItems.length} items</h2>
-                </div>
-                <SortControl
-                  ariaLabel="Ordenar premios por precio"
-                  onChange={(value) =>
-                    setDraftPriceSort(value as "price-desc" | "price-asc")
-                  }
-                  options={[
-                    { value: "price-desc", label: "Mayor a menor" },
-                    { value: "price-asc", label: "Menor a mayor" },
-                  ]}
-                  value={draftPriceSort}
-                />
-              </div>
-              <div className="draft-list">
-                {draftItems.length ? (
-                  sortedDraftItems.map((item) => (
-                    <div
-                      className={`draft-item ${itemTypeOf(item.card)}`}
-                      key={item.slotId}
-                    >
-                      <img src={cardImage(item.card)} alt="" />
-                      <div>
-                        <span className={`prize-type-chip ${itemTypeOf(item.card)}`}>
-                          {prizeTypeLabels[itemTypeOf(item.card)]}
-                        </span>
-                        <strong>{item.card.name}</strong>
-                        <small>
-                          {formatUsd.format(item.card.priceUsd ?? 0)} -{" "}
-                          {gameLabels[item.card.game]}
-                        </small>
-                        <small>Stock disponible {stockQuantityForCard(item.card)}</small>
-                        <label>
-                          Prob. %
-                          <input
-                            min="0"
-                            onChange={(event) =>
-                              updateDraftProbability(
-                                item.slotId,
-                                Number(event.target.value),
-                              )
-                            }
-                            step="0.001"
-                            type="number"
-                            value={item.probability}
-                          />
-                        </label>
-                      </div>
-                      <button
-                        aria-label={`Quitar ${item.card.name}`}
-                        onClick={() => removeDraftItem(item.slotId)}
-                        title="Quitar"
-                        type="button"
-                      >
-                        <Trash2 size={16} aria-hidden />
-                      </button>
-                    </div>
-                  ))
-                ) : (
-                  <p>Agrega premios desde tu stock para armar la caja.</p>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="saved-packs">
-            <h3>Cajas creadas</h3>
-            {sellerPacks.length ? (
-              sellerPacks.map((pack) => (
-                <div className="saved-pack" key={pack.id}>
-                  <span>
-                    <strong>{pack.name}</strong>
-                    <small>
-                      Pullario - {pack.series} -{" "}
-                      {pack.items.length} premios
-                    </small>
-                  </span>
-                  <div className="saved-pack-actions">
-                    <button
-                      disabled={adminSaving}
-                      onClick={() => startEditingPack(pack)}
-                      type="button"
-                    >
-                      <Settings size={16} aria-hidden />
-                      Editar
-                    </button>
-                    <button
-                      disabled={adminSaving}
-                      onClick={() => void deleteSavedPack(pack.id)}
-                      type="button"
-                    >
-                      <Trash2 size={16} aria-hidden />
-                      Borrar
-                    </button>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p>No hay cajas creadas todavia.</p>
-            )}
-          </div>
-        </>
-      ) : (
-        sellerRequiredPanel
+        <SellerRequiredPanel />
       )}
     </section>
   );
 
   const adminOrdersSection = (
     <section className="admin-band page-section" aria-label="Pedidos de Pullario">
-      {adminShellHeader}
+      <AdminShellHeader />
       {isSellerRole(session?.role) ? (
         <div className="orders-panel">
           <div className="admin-metrics wide shipping-metrics">
@@ -1541,7 +861,7 @@ export function BoosterMarket({
           </div>
         </div>
       ) : (
-        sellerRequiredPanel
+        <SellerRequiredPanel />
       )}
     </section>
   );
@@ -1551,7 +871,7 @@ export function BoosterMarket({
 
   const adminShipmentsSection = (
     <section className="admin-band page-section" aria-label="Envios de Pullario">
-      {adminShellHeader}
+      <AdminShellHeader />
       {isSellerRole(session?.role) ? (
         <div className="shipments-panel">
           <div className="shipment-view-tabs" aria-label="Estado de los envios">
@@ -1660,7 +980,7 @@ export function BoosterMarket({
           </div>
         </div>
       ) : (
-        sellerRequiredPanel
+        <SellerRequiredPanel />
       )}
     </section>
   );
@@ -1670,7 +990,7 @@ export function BoosterMarket({
       className="admin-band page-section"
       aria-label="Inventarios de usuarios"
     >
-      {adminShellHeader}
+      <AdminShellHeader />
       {isSellerRole(session?.role) ? (
         <div className="admin-users-layout">
           <aside className="admin-user-browser">
@@ -1946,7 +1266,7 @@ export function BoosterMarket({
           </div>
         </div>
       ) : (
-        sellerRequiredPanel
+        <SellerRequiredPanel />
       )}
     </section>
   );
@@ -1955,14 +1275,14 @@ export function BoosterMarket({
     view === "admin-stock"
       ? adminStockSection
       : view === "admin-packs"
-        ? adminPacksSection
+        ? <AdminPacksSection />
         : view === "admin-orders"
           ? adminOrdersSection
           : view === "admin-shipments"
             ? adminShipmentsSection
             : view === "admin-users"
               ? adminUsersSection
-          : adminDashboardSection;
+          : <AdminDashboardSection />;
 
   const pageTransitionKey = [view, initialPackId ?? ""].join(":");
 

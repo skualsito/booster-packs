@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CardGame, ExternalCard, PrizeItemType } from "../lib/card-search";
+import { useAdminPacks } from "./admin/useAdminPacks";
 import { apiFetch, authHeader, clearStoredSession } from "./api";
 import { useRouletteAudio } from "./audio/useRouletteAudio";
 import { useAuth } from "./auth/useAuth";
 import { useCardSearch } from "./cards/useCardSearch";
 import {
   cardGames,
-  gameAccents,
   isSellerRole,
   itemTypeOf,
   prizeItemTypes,
@@ -14,15 +14,9 @@ import {
 } from "./catalog";
 import { useChanger } from "./changer/useChanger";
 import { HIT_PROBABILITY_THRESHOLD, ROULETTE_STRIDE } from "./constants";
-import { demoPacks } from "./demo-packs";
 import { useCatalog } from "./home/useCatalog";
 import { useNotice } from "./layout/useNotice";
-import {
-  normalizedProbability,
-  normalizeItems,
-  packExpectedValue,
-  weightedPick,
-} from "./pack-math";
+import { normalizedProbability, weightedPick } from "./pack-math";
 import { useInventory } from "./profile/useInventory";
 import { useProfileForm } from "./profile/useProfileForm";
 import { useWallet } from "./profile/useWallet";
@@ -30,8 +24,6 @@ import type {
   AdminUserCardsResponse,
   AdminUsersResponse,
   AdminUserSummary,
-  ApiStatus,
-  BoosterPack,
   DeliverShipmentResponse,
   MarketProps,
   OpenPackResponse,
@@ -40,7 +32,6 @@ import type {
   RecentDrop,
   RecentDropsResponse,
   RouletteState,
-  SavePackResponse,
   ShipOrdersResponse,
   ShopOrderItem,
   ShopOrdersResponse,
@@ -321,8 +312,50 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     setChangerTargets,
     toggleChangerStake,
   } = changer;
-  const [adminMessage, setAdminMessage] = useState("");
-  const [adminSaving, setAdminSaving] = useState(false);
+  const adminPacks = useAdminPacks({
+    savedPacks,
+    selectedPackId,
+    session,
+    setApiStatus,
+    setSavedPacks,
+    setSelectedPackId,
+  });
+  const {
+    addCardToDraft,
+    adminMessage,
+    adminSaving,
+    deleteSavedPack,
+    draftExpectedValue,
+    draftGame,
+    draftItems,
+    draftMargin,
+    draftName,
+    draftPrice,
+    draftPriceSort,
+    draftProbabilityTotal,
+    draftSeries,
+    editingPackId,
+    packPrizeFilter,
+    packStockGameFilter,
+    removeDraftItem,
+    resetDraftPack,
+    saveDraftPack,
+    sellerPacks,
+    setAdminMessage,
+    setAdminSaving,
+    setDraftGame,
+    setDraftItems,
+    setDraftName,
+    setDraftPrice,
+    setDraftPriceSort,
+    setDraftSeries,
+    setEditingPackId,
+    setPackPrizeFilter,
+    setPackStockGameFilter,
+    sortedDraftItems,
+    startEditingPack,
+    updateDraftProbability,
+  } = adminPacks;
   const [shopStock, setShopStock] = useState<ShopStockItem[]>([]);
   const [stockMessage, setStockMessage] = useState("");
   const [stockBusyId, setStockBusyId] = useState<number | null>(null);
@@ -336,11 +369,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
   >({});
   const [stockGameFilter, setStockGameFilter] = useState<PackGame>("mixed");
   const [stockPrizeFilter, setStockPrizeFilter] = useState<PrizeItemType | "all">(
-    "all",
-  );
-  const [packStockGameFilter, setPackStockGameFilter] =
-    useState<PackGame>("mixed");
-  const [packPrizeFilter, setPackPrizeFilter] = useState<PrizeItemType | "all">(
     "all",
   );
   const [sealedType, setSealedType] = useState<Exclude<PrizeItemType, "card">>(
@@ -387,15 +415,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
   const [adminUserView, setAdminUserView] = useState<
     "inventory" | "shipments"
   >("inventory");
-  const [editingPackId, setEditingPackId] = useState<string | null>(null);
-  const [draftName, setDraftName] = useState("Caja personalizada");
-  const [draftSeries, setDraftSeries] = useState("Mi serie local");
-  const [draftGame, setDraftGame] = useState<PackGame>("mixed");
-  const [draftPrice, setDraftPrice] = useState(20);
-  const [draftItems, setDraftItems] = useState<PackItem[]>([]);
-  const [draftPriceSort, setDraftPriceSort] = useState<
-    "price-desc" | "price-asc"
-  >("price-desc");
   const [recentDrops, setRecentDrops] = useState<RecentDrop[]>([]);
   const [recentDropsLoading, setRecentDropsLoading] = useState(false);
   const [openingPack, setOpeningPack] = useState(false);
@@ -786,7 +805,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
       }
     };
   }, []);
-  const sellerPacks = isSellerRole(session?.role) ? savedPacks : [];
   const rouletteBelongsToSelectedPack = roulette.packId === selectedPack.id;
   const visibleRouletteItems = rouletteBelongsToSelectedPack ? roulette.items : [];
   const visibleRouletteOffset = rouletteBelongsToSelectedPack ? roulette.offset : 0;
@@ -847,20 +865,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
       spinKey: `idle-${selectedPack.id}-${index}`,
     }));
   }, [selectedPack]);
-  const draftProbabilityTotal = draftItems.reduce(
-    (total, item) => total + Math.max(0, item.probability),
-    0,
-  );
-  const draftExpectedValue = packExpectedValue({ items: draftItems });
-  const draftMargin = draftPrice - draftExpectedValue;
-  const sortedDraftItems = [...draftItems].sort((left, right) => {
-    const leftPrice = left.card.priceUsd ?? 0;
-    const rightPrice = right.card.priceUsd ?? 0;
-
-    return draftPriceSort === "price-desc"
-      ? rightPrice - leftPrice
-      : leftPrice - rightPrice;
-  });
   const withdrawnOrderCount = shopOrders.filter(
     (item) => item.status === "withdrawn",
   ).length;
@@ -1077,45 +1081,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     setShopOrders([]);
     setWalletOpen(false);
     setWonCardsOpen(false);
-  };
-
-  const addCardToDraft = (card: ExternalCard) => {
-    setDraftItems((current) => {
-      if (
-        current.some(
-          (item) =>
-            item.card.id === card.id &&
-            item.card.game === card.game &&
-            itemTypeOf(item.card) === itemTypeOf(card),
-        )
-      ) {
-        return current;
-      }
-
-      const nextProbability = current.length ? 5 : 100;
-      return [
-        ...current,
-        {
-          slotId: `${card.game}-${card.id}-${crypto.randomUUID()}`,
-          card,
-          probability: nextProbability,
-        },
-      ];
-    });
-  };
-
-  const updateDraftProbability = (slotId: string, value: number) => {
-    setDraftItems((current) =>
-      current.map((item) =>
-        item.slotId === slotId
-          ? { ...item, probability: Number(Math.max(0, value).toFixed(3)) }
-          : item,
-      ),
-    );
-  };
-
-  const removeDraftItem = (slotId: string) => {
-    setDraftItems((current) => current.filter((item) => item.slotId !== slotId));
   };
 
   const addCardToStock = async (card: ExternalCard, quantity = 1) => {
@@ -1398,134 +1363,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
       );
     } finally {
       setStockEditSaving(false);
-    }
-  };
-
-  const resetDraftPack = () => {
-    setEditingPackId(null);
-    setDraftName("Caja personalizada");
-    setDraftSeries("Mi serie local");
-    setDraftGame("mixed");
-    setDraftPrice(20);
-    setDraftItems([]);
-    setAdminMessage("");
-  };
-
-  const startEditingPack = (pack: BoosterPack) => {
-    setEditingPackId(pack.id);
-    setDraftName(pack.name);
-    setDraftSeries(pack.series);
-    setDraftGame(pack.game);
-    setDraftPrice(pack.price);
-    setDraftItems(pack.items);
-    setAdminMessage("");
-  };
-
-  const saveDraftPack = async () => {
-    if (!draftItems.length || !draftName.trim()) {
-      return;
-    }
-
-    if (!session || !isSellerRole(session.role)) {
-      setAdminMessage("Inicia sesion como administrador para guardar cajas.");
-      return;
-    }
-
-    const normalized = normalizeItems(draftItems, draftPrice);
-    const pack: BoosterPack = {
-      id: editingPackId ?? crypto.randomUUID(),
-      name: draftName.trim(),
-      series: draftSeries.trim() || "Serie local",
-      game: draftGame,
-      price: Math.max(0, Number(draftPrice.toFixed(2))),
-      accent: gameAccents[draftGame],
-      createdBy: "admin",
-      shopId: session.id,
-      shopSlug: "pullario",
-      shopName: "Pullario",
-      items: normalized,
-    };
-
-    setAdminSaving(true);
-    setAdminMessage("");
-    let nextApiStatus: ApiStatus = "offline";
-
-    try {
-      const response = await apiFetch("/api/packs", {
-        method: "POST",
-        headers: {
-          ...authHeader(session),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(pack),
-      });
-      const payload = (await response.json()) as SavePackResponse;
-      nextApiStatus = response.status >= 500 ? "offline" : "online";
-
-      if (!response.ok || payload.error || !payload.pack) {
-        throw new Error(payload.error ?? "No se pudo guardar la caja.");
-      }
-
-      setSavedPacks((current) => [
-        payload.pack as BoosterPack,
-        ...current.filter((savedPack) => savedPack.id !== payload.pack?.id),
-      ]);
-      setSelectedPackId(payload.pack.id);
-      setEditingPackId(null);
-      setDraftItems([]);
-      setApiStatus("online");
-      setAdminMessage(
-        editingPackId ? "Caja actualizada." : "Caja guardada.",
-      );
-    } catch (error) {
-      setApiStatus(nextApiStatus);
-      setAdminMessage(
-        error instanceof Error
-          ? error.message
-          : "No se pudo guardar la caja.",
-      );
-    } finally {
-      setAdminSaving(false);
-    }
-  };
-
-  const deleteSavedPack = async (packId: string) => {
-    if (!session || !isSellerRole(session.role)) {
-      setAdminMessage("Inicia sesion como administrador para borrar cajas.");
-      return;
-    }
-
-    setAdminSaving(true);
-    setAdminMessage("");
-    let nextApiStatus: ApiStatus = "offline";
-
-    try {
-      const response = await apiFetch(`/api/packs/${encodeURIComponent(packId)}`, {
-        method: "DELETE",
-        headers: {
-          ...authHeader(session),
-        },
-      });
-      const payload = (await response.json()) as { error?: string };
-      nextApiStatus = response.status >= 500 ? "offline" : "online";
-
-      if (!response.ok || payload.error) {
-        throw new Error(payload.error ?? "No se pudo borrar la caja.");
-      }
-
-      setSavedPacks((current) => current.filter((pack) => pack.id !== packId));
-      if (selectedPackId === packId) {
-        setSelectedPackId(demoPacks[0].id);
-      }
-      setApiStatus("online");
-      setAdminMessage("Caja borrada.");
-    } catch (error) {
-      setApiStatus(nextApiStatus);
-      setAdminMessage(
-        error instanceof Error ? error.message : "No se pudo borrar la caja.",
-      );
-    } finally {
-      setAdminSaving(false);
     }
   };
 
