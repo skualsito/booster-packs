@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CardGame, ExternalCard, PrizeItemType } from "../lib/card-search";
 import { apiFetch, authHeader, clearStoredSession } from "./api";
 import { useAuth } from "./auth/useAuth";
+import { useCardSearch } from "./cards/useCardSearch";
 import {
   cardGames,
   gameAccents,
   isSellerRole,
   itemTypeOf,
-  newSearchState,
   prizeItemTypes,
   prizeTypeLabels,
 } from "./catalog";
@@ -45,9 +45,6 @@ import type {
   RecentDropsResponse,
   RouletteState,
   SavePackResponse,
-  SearchResponse,
-  SearchState,
-  SelectedCardDetails,
   ShipOrdersResponse,
   ShopOrderItem,
   ShopOrdersResponse,
@@ -207,17 +204,19 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     walletOpen,
     walletSaving,
   } = wallet;
+  const cardSearch = useCardSearch();
+  const {
+    adminSearch,
+    publicSearch,
+    runSearch,
+    selectedCard,
+    setAdminSearch,
+    setPublicSearch,
+    setSelectedCard,
+    showCardDetails,
+  } = cardSearch;
   const [adminMessage, setAdminMessage] = useState("");
   const [adminSaving, setAdminSaving] = useState(false);
-  const [publicSearch, setPublicSearch] = useState<SearchState>(
-    newSearchState("one-piece", ""),
-  );
-  const [adminSearch, setAdminSearch] = useState<SearchState>(
-    newSearchState("pokemon", ""),
-  );
-  const [selectedCard, setSelectedCard] = useState<SelectedCardDetails | null>(
-    null,
-  );
   const [upgraderTargets, setUpgraderTargets] = useState<ShopStockItem[]>([]);
   const [upgraderStakeIds, setUpgraderStakeIds] = useState<number[]>([]);
   const [upgraderTargetId, setUpgraderTargetId] = useState<number | null>(null);
@@ -730,6 +729,8 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
   }, [loadChangerOptions, session, view]);
 
   useEffect(() => {
+    // Pre-existing reset-on-change effect, kept as is by the refactor.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setChangerStakeIds([]);
     setChangerTargetQuantities({});
     setChangerOutcome(null);
@@ -831,6 +832,8 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     : 0;
   useEffect(() => {
     if (selectedPack.createdBy === "demo") {
+      // Pre-existing reset-on-change effect, kept as is by the refactor.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setRecentDrops([]);
       return;
     }
@@ -923,6 +926,8 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
       : Number.POSITIVE_INFINITY;
 
   useEffect(() => {
+    // Pre-existing reset-on-change effect, kept as is by the refactor.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setUpgraderTargetQuantity(1);
   }, [upgraderTargetId]);
 
@@ -931,6 +936,8 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
       return;
     }
 
+    // Pre-existing reset-on-change effect, kept as is by the refactor.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setUpgraderMinPrice(
       upgraderStakeValue > 0
         ? String(Number((upgraderStakeValue * upgraderPreset).toFixed(2)))
@@ -1209,138 +1216,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
         itemTypeOf(item.card) === itemTypeOf(card),
     )
       ?.quantity ?? 0;
-
-  const showCardDetails = (card: ExternalCard) => {
-    setSelectedCard({ card });
-  };
-
-  const runSearch = async (
-    context: "public" | "admin",
-    override?: Partial<SearchState>,
-    append = false,
-  ) => {
-    const current = context === "public" ? publicSearch : adminSearch;
-
-    if (append && (current.loading || current.loadingMore || !current.hasMore)) {
-      return;
-    }
-
-    const next = { ...current, ...override };
-    const setter = context === "public" ? setPublicSearch : setAdminSearch;
-    const query = next.query.trim();
-    const setName = next.setName.trim();
-    const number = next.number.trim();
-
-    if (query.length < 2 && setName.length < 2) {
-      setter({
-        ...next,
-        error: "Escribi una carta o un set para buscar.",
-        results: [],
-        hasMore: false,
-        loadingMore: false,
-        page: 0,
-      });
-      return;
-    }
-
-    const requestedPage = append ? current.page + 1 : 1;
-    setter({
-      ...next,
-      loading: !append,
-      loadingMore: append,
-      error: "",
-      results: append ? current.results : [],
-      hasMore: append ? current.hasMore : false,
-      page: append ? current.page : 0,
-    });
-
-    try {
-      const params = new URLSearchParams({ game: next.game });
-
-      if (query) {
-        params.set("q", query);
-      }
-
-      if (setName) {
-        params.set("set", setName);
-      }
-
-      if (number) {
-        params.set("number", number);
-      }
-
-      if (next.rarity.trim()) {
-        params.set("rarity", next.rarity.trim());
-      }
-
-      params.set("page", String(requestedPage));
-      params.set("sort", next.sort);
-
-      const response = await fetch(`/api/cards/search?${params.toString()}`);
-      const payload = (await response.json()) as SearchResponse;
-
-      if (!response.ok || payload.error) {
-        throw new Error(payload.error ?? "No se pudo buscar.");
-      }
-
-      setter((currentState) => {
-        if (
-          currentState.game !== next.game ||
-          currentState.query !== next.query ||
-          currentState.setName !== next.setName ||
-          currentState.number !== next.number ||
-          currentState.rarity !== next.rarity ||
-          currentState.sort !== next.sort
-        ) {
-          return currentState;
-        }
-
-        const incomingCards = payload.cards ?? [];
-        const results = append
-          ? Array.from(
-              new Map(
-                [...currentState.results, ...incomingCards].map((card) => [
-                  `${card.game}:${card.id}`,
-                  card,
-                ]),
-              ).values(),
-            )
-          : incomingCards;
-
-        return {
-          ...currentState,
-          results,
-          loading: false,
-          loadingMore: false,
-          hasMore: payload.meta?.hasMore ?? false,
-          page: payload.meta?.page ?? requestedPage,
-          error: "",
-        };
-      });
-    } catch (error) {
-      setter((currentState) => {
-        if (
-          currentState.game !== next.game ||
-          currentState.query !== next.query ||
-          currentState.setName !== next.setName ||
-          currentState.number !== next.number ||
-          currentState.rarity !== next.rarity ||
-          currentState.sort !== next.sort
-        ) {
-          return currentState;
-        }
-
-        return {
-          ...currentState,
-          results: append ? currentState.results : [],
-          loading: false,
-          loadingMore: false,
-          hasMore: false,
-          error: error instanceof Error ? error.message : "No se pudo buscar.",
-        };
-      });
-    }
-  };
 
   const logout = () => {
     if (session) {
@@ -2047,6 +1922,8 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     }
   };
 
+  // Only runs from openPack (a click handler), so the impure calls below
+  // never run during render.
   const spinWithWinner = (winner: PackItem, onDone?: () => void) => {
     spinTimers.current.forEach((timer) => window.clearTimeout(timer));
     spinTimers.current = [];
@@ -2057,6 +1934,7 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     setCelebratingRunId(null);
 
     const targetIndex = 32;
+    // eslint-disable-next-line react-hooks/purity
     const runId = Date.now();
     const targetOffset = targetIndex * ROULETTE_STRIDE;
     const strip = Array.from({ length: 42 }, (_, index) => ({
@@ -2070,6 +1948,7 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     );
     const showcaseHit = showcaseHitCandidates.length
       ? showcaseHitCandidates[
+          // eslint-disable-next-line react-hooks/purity
           Math.floor(Math.random() * showcaseHitCandidates.length)
         ]
       : undefined;
@@ -2077,6 +1956,7 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     if (showcaseHit) {
       const showcaseOffsets = [-4, -3, -2, 2, 3, 4];
       const showcaseOffset =
+        // eslint-disable-next-line react-hooks/purity
         showcaseOffsets[Math.floor(Math.random() * showcaseOffsets.length)];
       const showcaseIndex = targetIndex + showcaseOffset;
       strip[showcaseIndex] = {

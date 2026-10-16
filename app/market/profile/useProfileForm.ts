@@ -2,7 +2,6 @@ import { useCallback, useState } from "react";
 import type { SessionAuth } from "../types";
 
 export function useProfileForm() {
-
   const [profileDisplayName, setProfileDisplayName] = useState("");
   const [profileEmail, setProfileEmail] = useState("");
   const [profileFullName, setProfileFullName] = useState("");

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 
 export function useNotice() {
-
   const [wonCardsMessage, setWonCardsMessage] = useState("");
   const [wonCardsMessageTone, setWonCardsMessageTone] = useState<
     "info" | "success" | "warning" | "error"

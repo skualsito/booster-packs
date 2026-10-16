@@ -63,7 +63,6 @@ export function useAuth(deps: AuthDeps) {
     setWonCardsMessageTone,
   } = deps;
 
-
   const [session, setSession] = useState<SessionAuth | null>(null);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [loginUsername, setLoginUsername] = useState("");
