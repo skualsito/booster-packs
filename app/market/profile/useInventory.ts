@@ -242,10 +242,8 @@ export function useInventory(deps: InventoryDeps) {
   return {
     wonCardsOpen,
     setWonCardsOpen,
-    wonCards,
     setWonCards,
     wonCardBusyId,
-    setWonCardBusyId,
     inventoryActiveOnly,
     setInventoryActiveOnly,
     inventoryPriceSort,

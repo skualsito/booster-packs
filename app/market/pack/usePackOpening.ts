@@ -380,28 +380,17 @@ export function usePackOpening(deps: PackOpeningDeps) {
 
   return {
     recentDrops,
-    setRecentDrops,
     recentDropsLoading,
-    setRecentDropsLoading,
     openingPack,
-    setOpeningPack,
     roulette,
-    setRoulette,
     celebratingRunId,
-    setCelebratingRunId,
-    spinTimers,
     rouletteTrackRef,
-    rouletteTickFrameRef,
-    loadRecentDrops,
-    rouletteBelongsToSelectedPack,
     visibleRouletteItems,
     visibleRouletteOffset,
     visibleRoulettePhase,
     visibleRouletteResult,
     visibleRouletteRunId,
     idleRouletteItems,
-    spinWithWinner,
-    startRouletteTickTracking,
     openPack,
   };
 }

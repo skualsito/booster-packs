@@ -177,10 +177,8 @@ export function useAdminOrders(deps: AdminOrdersDeps) {
   )?.userId;
 
   return {
-    shopOrders,
     setShopOrders,
     ordersMessage,
-    setOrdersMessage,
     selectedShipmentIds,
     setSelectedShipmentIds,
     shippingModalOpen,
@@ -188,7 +186,6 @@ export function useAdminOrders(deps: AdminOrdersDeps) {
     shipmentTrackingNumber,
     setShipmentTrackingNumber,
     shippingOrders,
-    setShippingOrders,
     loadShopOrders,
     toggleShipmentSelection,
     markSelectedOrdersShipped,

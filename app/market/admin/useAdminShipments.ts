@@ -144,18 +144,12 @@ export function useAdminShipments(deps: AdminShipmentsDeps) {
 
   return {
     activeShipments,
-    setActiveShipments,
-    shipmentHistory,
-    setShipmentHistory,
     shipmentView,
     setShipmentView,
     shipmentsMessage,
-    setShipmentsMessage,
     shipmentBusyKey,
-    setShipmentBusyKey,
     loadShopShipments,
     markShipmentReceived,
-    groupShipmentItems,
     activeShipmentGroups,
     shipmentHistoryGroups,
     visibleShipmentGroups,

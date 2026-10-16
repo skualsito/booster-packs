@@ -292,7 +292,6 @@ export function useAuth(deps: AuthDeps) {
     setAuthMessage,
     homeAuthOpen,
     setHomeAuthOpen,
-    storeSession,
     updateSessionUser,
     submitAuth,
     updateProfile,

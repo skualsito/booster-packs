@@ -236,15 +236,12 @@ export function useAdminPacks(deps: AdminPacksDeps) {
 
   return {
     adminMessage,
-    setAdminMessage,
     adminSaving,
-    setAdminSaving,
     packStockGameFilter,
     setPackStockGameFilter,
     packPrizeFilter,
     setPackPrizeFilter,
     editingPackId,
-    setEditingPackId,
     draftName,
     setDraftName,
     draftSeries,

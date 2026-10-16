@@ -391,10 +391,7 @@ export function useUpgrader(deps: UpgraderDeps) {
   };
 
   return {
-    upgraderTargets,
-    setUpgraderTargets,
     upgraderStakeIds,
-    setUpgraderStakeIds,
     upgraderTargetId,
     setUpgraderTargetId,
     upgraderTargetQuantity,
@@ -410,17 +407,11 @@ export function useUpgrader(deps: UpgraderDeps) {
     upgraderMaxPrice,
     setUpgraderMaxPrice,
     upgraderLoading,
-    setUpgraderLoading,
     upgraderPlaying,
-    setUpgraderPlaying,
     upgraderRotation,
-    setUpgraderRotation,
     upgraderOutcome,
     setUpgraderOutcome,
-    upgraderTimerRef,
     upgraderNeedleRef,
-    upgraderTickFrameRef,
-    loadUpgraderOptions,
     upgraderStakeCards,
     upgraderStakeValue,
     upgraderTarget,
@@ -428,15 +419,10 @@ export function useUpgrader(deps: UpgraderDeps) {
     upgraderTargetValue,
     upgraderChance,
     upgraderMultiplier,
-    parsedUpgraderMinPrice,
-    parsedUpgraderMaxPrice,
-    effectiveUpgraderMinPrice,
-    effectiveUpgraderMaxPrice,
     filteredUpgraderTargets,
     toggleUpgraderStake,
     chooseUpgraderPreset,
     playUpgrader,
-    startUpgraderTickTracking,
   };
 }
 

@@ -237,23 +237,15 @@ export function useChanger(deps: ChangerDeps) {
   };
 
   return {
-    changerTargets,
-    setChangerTargets,
     changerStakeIds,
-    setChangerStakeIds,
     changerTargetQuantities,
-    setChangerTargetQuantities,
     changerQuery,
     setChangerQuery,
     changerGame,
     setChangerGame,
     changerLoading,
-    setChangerLoading,
     changerSaving,
-    setChangerSaving,
     changerOutcome,
-    setChangerOutcome,
-    loadChangerOptions,
     changerStakeCards,
     changerStakeValue,
     changerSelectedTargets,

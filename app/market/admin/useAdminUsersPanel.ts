@@ -211,17 +211,11 @@ export function useAdminUsersPanel(deps: AdminUsersPanelDeps) {
 
   return {
     adminUsers,
-    setAdminUsers,
     adminUserQuery,
     setAdminUserQuery,
     selectedAdminUser,
-    setSelectedAdminUser,
-    adminUserCards,
-    setAdminUserCards,
     adminUsersMessage,
-    setAdminUsersMessage,
     adminUsersLoading,
-    setAdminUsersLoading,
     adminInventoryActiveOnly,
     setAdminInventoryActiveOnly,
     adminInventoryMinPrice,
@@ -234,8 +228,6 @@ export function useAdminUsersPanel(deps: AdminUsersPanelDeps) {
     setAdminUserView,
     loadAdminUsers,
     loadAdminUserCards,
-    minAdminPrice,
-    maxAdminPrice,
     visibleAdminUserCards,
     adminUserWithdrawalGroups,
   };

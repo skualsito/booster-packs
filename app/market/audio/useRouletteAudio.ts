@@ -93,7 +93,6 @@ export function useRouletteAudio() {
   };
 
   return {
-    audioContextRef,
     prepareRouletteAudio,
     playRouletteTick,
     playUpgraderResultSound,

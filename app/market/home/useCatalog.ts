@@ -69,7 +69,6 @@ export function useCatalog(deps: CatalogDeps) {
     setApiStatus,
     loadDbPacks,
     packs,
-    activePackId,
     selectedPackExists,
     selectedPack,
     selectedTopItem,

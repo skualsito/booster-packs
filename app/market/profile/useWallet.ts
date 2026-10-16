@@ -64,9 +64,7 @@ export function useWallet(deps: WalletDeps) {
     walletAmount,
     setWalletAmount,
     walletMessage,
-    setWalletMessage,
     walletSaving,
-    setWalletSaving,
     topUpWallet,
   };
 }
