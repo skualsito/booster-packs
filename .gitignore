@@ -42,7 +42,5 @@ tsconfig.tsbuildinfo
 /outputs/
 /work/
 
-# local Codex preview logs
-.codex-dev.*.log
-.codex-dev-*.log
-.codex-api-*.log
+# local dev/preview logs
+*.log

@@ -1,19 +1,32 @@
 import { createServer } from "node:http";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import {
-  pbkdf2Sync,
-  randomBytes,
-  randomInt,
-  randomUUID,
-  timingSafeEqual,
-} from "node:crypto";
+import { randomUUID } from "node:crypto";
 import mysql from "mysql2/promise";
+import {
+  UPGRADER_MAX_CHANCE,
+  UPGRADER_RTP,
+  rollPercent,
+  upgraderChance,
+  weightedPick,
+} from "./lib/game-math.mjs";
+import {
+  PASSWORD_MIN_LENGTH,
+  clientIp,
+  createRateLimiter,
+  createSessionToken,
+  hashPassword,
+  hashSessionToken,
+  verifyPassword,
+} from "./lib/security.mjs";
 
 const ROOT_DIR = process.cwd();
 const ENV_PATH = resolve(ROOT_DIR, ".env.local");
 const TOKEN_TTL_MS = 1000 * 60 * 60 * 8;
-const sessions = new Map();
+// Sliding expiry is only written back once this much of the TTL has passed.
+const TOKEN_REFRESH_MS = 1000 * 60 * 15;
+const loginLimiter = createRateLimiter({ limit: 10, windowMs: 1000 * 60 * 15 });
+const registerLimiter = createRateLimiter({ limit: 5, windowMs: 1000 * 60 * 60 });
 
 loadEnvFile(ENV_PATH);
 
@@ -30,8 +43,19 @@ const config = {
   mysqlPassword: process.env.MYSQL_PASSWORD ?? "",
   mysqlDatabase: process.env.MYSQL_DATABASE ?? "hitshelf",
   adminUsername: process.env.ADMIN_USERNAME ?? "admin",
-  adminPassword: process.env.ADMIN_PASSWORD ?? "admin123",
+  adminPassword: process.env.ADMIN_PASSWORD ?? "",
 };
+
+if (!config.adminPassword) {
+  console.error("Configura ADMIN_PASSWORD en .env.local antes de iniciar el API.");
+  process.exit(1);
+}
+
+if (config.adminPassword.length < PASSWORD_MIN_LENGTH) {
+  console.warn(
+    `ADMIN_PASSWORD tiene menos de ${PASSWORD_MIN_LENGTH} caracteres; usa una mas larga.`,
+  );
+}
 
 let pool;
 
@@ -317,6 +341,20 @@ async function migrate(connectionPool) {
     ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
   `);
 
+  await connectionPool.query(`
+    CREATE TABLE IF NOT EXISTS user_sessions (
+      token_hash CHAR(64) PRIMARY KEY,
+      user_id INT NOT NULL,
+      expires_at DATETIME NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX user_sessions_user_idx (user_id),
+      INDEX user_sessions_expires_idx (expires_at),
+      CONSTRAINT user_sessions_user_fk
+        FOREIGN KEY (user_id) REFERENCES users(id)
+        ON DELETE CASCADE
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  `);
+
   await migrateLegacyPackIds(connectionPool);
 }
 
@@ -487,7 +525,7 @@ async function migrateExistingTables(connectionPool) {
 }
 
 async function seedAdmin(connectionPool) {
-  const { salt, passwordHash } = hashPassword(config.adminPassword);
+  const { salt, passwordHash } = await hashPassword(config.adminPassword);
 
   await connectionPool.execute(
     `
@@ -518,21 +556,6 @@ async function seedAdmin(connectionPool) {
   );
 }
 
-function hashPassword(password, salt = randomBytes(16).toString("hex")) {
-  const passwordHash = pbkdf2Sync(password, salt, 120000, 64, "sha512").toString(
-    "hex",
-  );
-
-  return { salt, passwordHash };
-}
-
-function verifyPassword(password, salt, expectedHash) {
-  const actual = Buffer.from(hashPassword(password, salt).passwordHash, "hex");
-  const expected = Buffer.from(expectedHash, "hex");
-
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
-}
-
 function setCorsHeaders(request, response) {
   const origin = request.headers.origin;
 
@@ -548,6 +571,18 @@ function setCorsHeaders(request, response) {
   );
 }
 
+function enforceRateLimit(limiter, key) {
+  const { allowed, retryAfterMs } = limiter.consume(key);
+
+  if (!allowed) {
+    const minutes = Math.max(1, Math.ceil(retryAfterMs / 60000));
+    throw Object.assign(
+      new Error(`Demasiados intentos. Proba de nuevo en ${minutes} min.`),
+      { status: 429 },
+    );
+  }
+}
+
 function sendJson(response, status, payload) {
   response.statusCode = status;
   response.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -561,11 +596,17 @@ async function readJsonBody(request) {
     body += chunk;
 
     if (body.length > 1024 * 1024) {
-      throw new Error("Body too large");
+      throw Object.assign(new Error("El cuerpo del pedido es demasiado grande."), {
+        status: 413,
+      });
     }
   }
 
-  return body ? JSON.parse(body) : {};
+  try {
+    return body ? JSON.parse(body) : {};
+  } catch {
+    throw Object.assign(new Error("JSON invalido."), { status: 400 });
+  }
 }
 
 function getBearerToken(request) {
@@ -575,27 +616,61 @@ function getBearerToken(request) {
   return scheme?.toLowerCase() === "bearer" ? token : undefined;
 }
 
-function requireUser(request) {
+async function requireUser(request) {
   const token = getBearerToken(request);
-  const session = token ? sessions.get(token) : undefined;
 
-  if (!session || session.expiresAt < Date.now()) {
-    if (token) {
-      sessions.delete(token);
-    }
-
+  if (!token || !/^[a-f0-9]{64}$/.test(token)) {
     return undefined;
   }
 
-  session.token = token;
-  session.expiresAt = Date.now() + TOKEN_TTL_MS;
-  return session;
+  const tokenHash = hashSessionToken(token);
+  const connectionPool = await getPool();
+  const [rows] = await connectionPool.execute(
+    `
+      SELECT users.*, user_sessions.expires_at AS session_expires_at
+      FROM user_sessions
+      JOIN users ON users.id = user_sessions.user_id
+      WHERE user_sessions.token_hash = ? AND user_sessions.expires_at > UTC_TIMESTAMP()
+      LIMIT 1
+    `,
+    [tokenHash],
+  );
+  const row = rows[0];
+
+  if (!row) {
+    return undefined;
+  }
+
+  const expiresAt = new Date(row.session_expires_at).getTime();
+
+  if (expiresAt - Date.now() < TOKEN_TTL_MS - TOKEN_REFRESH_MS) {
+    await connectionPool.execute(
+      "UPDATE user_sessions SET expires_at = ? WHERE token_hash = ?",
+      [new Date(Date.now() + TOKEN_TTL_MS), tokenHash],
+    );
+  }
+
+  return { ...publicUser(row), token };
 }
 
-function requireSeller(request) {
-  const session = requireUser(request);
+async function requireSeller(request) {
+  const session = await requireUser(request);
 
   return session?.role === "admin" ? session : undefined;
+}
+
+async function deleteSession(token) {
+  const connectionPool = await getPool();
+  await connectionPool.execute("DELETE FROM user_sessions WHERE token_hash = ?", [
+    hashSessionToken(token),
+  ]);
+}
+
+async function deleteExpiredSessions() {
+  const connectionPool = await getPool();
+  await connectionPool.query(
+    "DELETE FROM user_sessions WHERE expires_at <= UTC_TIMESTAMP()",
+  );
 }
 
 async function listPacks() {
@@ -733,20 +808,6 @@ function publicUserCard(row) {
   };
 }
 
-const UPGRADER_RTP = 0.9;
-const UPGRADER_MAX_CHANCE = 80;
-
-function upgraderChance(stakeValue, targetValue) {
-  if (stakeValue <= 0 || targetValue <= stakeValue) {
-    return 0;
-  }
-
-  return Math.min(
-    UPGRADER_MAX_CHANCE,
-    Number(((stakeValue / targetValue) * 100 * UPGRADER_RTP).toFixed(6)),
-  );
-}
-
 async function listUpgraderOptions(session) {
   const connectionPool = await getPool();
   const [inventoryRows] = session
@@ -878,7 +939,7 @@ async function playUpgrader(session, body) {
       );
     }
 
-    const roll = randomInt(0, 100_000_000) / 1_000_000;
+    const roll = rollPercent();
     const won = roll < chance;
     const runId = randomUUID();
 
@@ -1150,27 +1211,6 @@ async function playChanger(session, body) {
   } finally {
     connection.release();
   }
-}
-
-function weightedPick(items) {
-  const total = items.reduce(
-    (sum, item) => sum + Math.max(0, Number(item.probability ?? 0)),
-    0,
-  );
-
-  if (total <= 0) {
-    return items[0];
-  }
-
-  let roll = Math.random() * total;
-  for (const item of items) {
-    roll -= Math.max(0, Number(item.probability ?? 0));
-    if (roll <= 0) {
-      return item;
-    }
-  }
-
-  return items[items.length - 1];
 }
 
 async function listShopStock(session) {
@@ -1717,6 +1757,18 @@ async function savePack(body, session) {
 
   try {
     await connection.beginTransaction();
+    const [existingRows] = await connection.execute(
+      "SELECT shop_id FROM booster_packs WHERE id = ? LIMIT 1 FOR UPDATE",
+      [pack.id],
+    );
+    const existingShopId = existingRows[0]?.shop_id;
+
+    if (existingShopId != null && Number(existingShopId) !== session.id) {
+      throw Object.assign(new Error("Ese pack pertenece a otra tienda."), {
+        status: 403,
+      });
+    }
+
     const cardKeys = pack.items.map((item) => stockCardKey(item.card));
     const placeholders = cardKeys.map(() => "?").join(",");
     const [stockRows] = await connection.execute(
@@ -1803,13 +1855,17 @@ async function savePack(body, session) {
   }
 }
 
-async function deletePack(packId) {
+// Legacy packs created before shops existed have no shop_id.
+async function deletePackForSession(packId, session) {
   const connectionPool = await getPool();
-  await connectionPool.execute("DELETE FROM booster_packs WHERE id = ?", [packId]);
-}
+  const [result] = await connectionPool.execute(
+    "DELETE FROM booster_packs WHERE id = ? AND (shop_id = ? OR shop_id IS NULL)",
+    [packId, session.id],
+  );
 
-async function deletePackForSession(packId) {
-  await deletePack(packId);
+  if (!result.affectedRows) {
+    throw Object.assign(new Error("Pack no encontrado."), { status: 404 });
+  }
 }
 
 async function openPackForUser(packId, session) {
@@ -1973,16 +2029,16 @@ function publicUser(row) {
   };
 }
 
-function createSession(user) {
-  const token = randomBytes(32).toString("hex");
-  const safeUser = publicUser(user);
+async function createSession(user) {
+  const token = createSessionToken();
+  const connectionPool = await getPool();
 
-  sessions.set(token, {
-    ...safeUser,
-    expiresAt: Date.now() + TOKEN_TTL_MS,
-  });
+  await connectionPool.execute(
+    "INSERT INTO user_sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)",
+    [hashSessionToken(token), user.id, new Date(Date.now() + TOKEN_TTL_MS)],
+  );
 
-  return { token, user: safeUser };
+  return { token, user: publicUser(user) };
 }
 
 async function login(body) {
@@ -2002,7 +2058,7 @@ async function login(body) {
   );
   const user = rows[0];
 
-  if (!user || !verifyPassword(password, user.salt, user.password_hash)) {
+  if (!user || !(await verifyPassword(password, user.salt, user.password_hash))) {
     throw Object.assign(new Error("Credenciales invalidas."), { status: 401 });
   }
 
@@ -2028,13 +2084,13 @@ async function register(body) {
     );
   }
 
-  if (password.length < 4) {
-    throw Object.assign(new Error("El password necesita al menos 4 caracteres."), {
+  if (password.length < PASSWORD_MIN_LENGTH) {
+    throw Object.assign(new Error(`El password necesita al menos ${PASSWORD_MIN_LENGTH} caracteres.`), {
       status: 400,
     });
   }
 
-  const { salt, passwordHash } = hashPassword(password);
+  const { salt, passwordHash } = await hashPassword(password);
   const connectionPool = await getPool();
 
   try {
@@ -2122,14 +2178,14 @@ async function updateMe(session, body) {
   const connectionPool = await getPool();
 
   if (password.trim()) {
-    if (password.length < 4) {
+    if (password.length < PASSWORD_MIN_LENGTH) {
       throw Object.assign(
-        new Error("El password necesita al menos 4 caracteres."),
+        new Error(`El password necesita al menos ${PASSWORD_MIN_LENGTH} caracteres.`),
         { status: 400 },
       );
     }
 
-    const { salt, passwordHash } = hashPassword(password);
+    const { salt, passwordHash } = await hashPassword(password);
     await connectionPool.execute(
       `UPDATE users SET display_name = ?, email = ?, full_name = ?, phone = ?,
         address_line1 = ?, address_line2 = ?, street = ?, street_number = ?, floor = ?, apartment = ?,
@@ -2140,6 +2196,10 @@ async function updateMe(session, body) {
         streetNumber, floor, apartment, addressReference, city, province,
         postalCode, country, shopName, passwordHash, salt, session.id,
       ],
+    );
+    await connectionPool.execute(
+      "DELETE FROM user_sessions WHERE user_id = ? AND token_hash <> ?",
+      [session.id, hashSessionToken(session.token)],
     );
   } else {
     await connectionPool.execute(
@@ -2166,17 +2226,7 @@ async function updateMe(session, body) {
     "SELECT * FROM users WHERE id = ? LIMIT 1",
     [session.id],
   );
-  const user = publicUser(rows[0]);
-  const token = session.token;
-
-  if (token && sessions.has(token)) {
-    sessions.set(token, {
-      ...user,
-      expiresAt: Date.now() + TOKEN_TTL_MS,
-    });
-  }
-
-  return { user };
+  return { user: publicUser(rows[0]) };
 }
 
 async function topUpWallet(session, body) {
@@ -2364,18 +2414,8 @@ async function handleRequest(request, response) {
 
   if (request.method === "GET" && pathname === "/health") {
     const connectionPool = await getPool();
-    const [packRows] = await connectionPool.query(
-      "SELECT COUNT(*) AS pack_count FROM booster_packs",
-    );
-    const [userRows] = await connectionPool.query(
-      "SELECT COUNT(*) AS user_count FROM users",
-    );
-    sendJson(response, 200, {
-      ok: true,
-      database: databaseName(),
-      packs: Number(packRows[0]?.pack_count ?? 0),
-      users: Number(userRows[0]?.user_count ?? 0),
-    });
+    await connectionPool.query("SELECT 1");
+    sendJson(response, 200, { ok: true });
     return;
   }
 
@@ -2397,11 +2437,17 @@ async function handleRequest(request, response) {
   }
 
   if (request.method === "POST" && pathname === "/api/auth/login") {
-    sendJson(response, 200, await login(await readJsonBody(request)));
+    const body = await readJsonBody(request);
+    const limitKey = `${clientIp(request)}:${asTrimmedString(body.username).toLowerCase()}`;
+    enforceRateLimit(loginLimiter, limitKey);
+    const result = await login(body);
+    loginLimiter.reset(limitKey);
+    sendJson(response, 200, result);
     return;
   }
 
   if (request.method === "POST" && pathname === "/api/auth/register") {
+    enforceRateLimit(registerLimiter, clientIp(request));
     sendJson(response, 200, await register(await readJsonBody(request)));
     return;
   }
@@ -2410,7 +2456,7 @@ async function handleRequest(request, response) {
     const token = getBearerToken(request);
 
     if (token) {
-      sessions.delete(token);
+      await deleteSession(token);
     }
 
     sendJson(response, 200, { ok: true });
@@ -2418,7 +2464,7 @@ async function handleRequest(request, response) {
   }
 
   if (request.method === "GET" && pathname === "/api/me") {
-    const session = requireUser(request);
+    const session = await requireUser(request);
 
     if (!session) {
       sendJson(response, 401, { error: "Inicia sesion." });
@@ -2430,7 +2476,7 @@ async function handleRequest(request, response) {
   }
 
   if (request.method === "PUT" && pathname === "/api/me") {
-    const session = requireUser(request);
+    const session = await requireUser(request);
 
     if (!session) {
       sendJson(response, 401, { error: "Inicia sesion." });
@@ -2442,7 +2488,7 @@ async function handleRequest(request, response) {
   }
 
   if (request.method === "POST" && pathname === "/api/wallet/topup") {
-    const session = requireUser(request);
+    const session = await requireUser(request);
 
     if (!session) {
       sendJson(response, 401, { error: "Inicia sesion." });
@@ -2454,7 +2500,7 @@ async function handleRequest(request, response) {
   }
 
   if (request.method === "GET" && pathname === "/api/me/cards") {
-    const session = requireUser(request);
+    const session = await requireUser(request);
 
     if (!session) {
       sendJson(response, 401, { error: "Inicia sesion." });
@@ -2466,13 +2512,13 @@ async function handleRequest(request, response) {
   }
 
   if (request.method === "GET" && pathname === "/api/upgrader") {
-    const session = requireUser(request);
+    const session = await requireUser(request);
     sendJson(response, 200, await listUpgraderOptions(session));
     return;
   }
 
   if (request.method === "POST" && pathname === "/api/upgrader/play") {
-    const session = requireUser(request);
+    const session = await requireUser(request);
 
     if (!session) {
       sendJson(response, 401, { error: "Inicia sesion." });
@@ -2484,13 +2530,13 @@ async function handleRequest(request, response) {
   }
 
   if (request.method === "GET" && pathname === "/api/changer") {
-    const session = requireUser(request);
+    const session = await requireUser(request);
     sendJson(response, 200, await listUpgraderOptions(session));
     return;
   }
 
   if (request.method === "POST" && pathname === "/api/changer/play") {
-    const session = requireUser(request);
+    const session = await requireUser(request);
 
     if (!session) {
       sendJson(response, 401, { error: "Inicia sesión." });
@@ -2506,7 +2552,7 @@ async function handleRequest(request, response) {
     pathname.startsWith("/api/me/cards/") &&
     pathname.endsWith("/sell")
   ) {
-    const session = requireUser(request);
+    const session = await requireUser(request);
 
     if (!session) {
       sendJson(response, 401, { error: "Inicia sesion." });
@@ -2525,7 +2571,7 @@ async function handleRequest(request, response) {
     pathname.startsWith("/api/me/cards/") &&
     pathname.endsWith("/withdraw")
   ) {
-    const session = requireUser(request);
+    const session = await requireUser(request);
 
     if (!session) {
       sendJson(response, 401, { error: "Inicia sesion." });
@@ -2542,7 +2588,7 @@ async function handleRequest(request, response) {
   }
 
   if (request.method === "GET" && pathname === "/api/admin/stock") {
-    const session = requireSeller(request);
+    const session = await requireSeller(request);
 
     if (!session) {
       sendJson(response, 401, { error: "Inicia sesion como administrador." });
@@ -2554,7 +2600,7 @@ async function handleRequest(request, response) {
   }
 
   if (request.method === "GET" && pathname === "/api/admin/orders") {
-    const session = requireSeller(request);
+    const session = await requireSeller(request);
 
     if (!session) {
       sendJson(response, 401, { error: "Inicia sesion como administrador." });
@@ -2566,7 +2612,7 @@ async function handleRequest(request, response) {
   }
 
   if (request.method === "POST" && pathname === "/api/admin/orders/ship") {
-    const session = requireSeller(request);
+    const session = await requireSeller(request);
 
     if (!session) {
       sendJson(response, 401, { error: "Inicia sesion como administrador." });
@@ -2582,7 +2628,7 @@ async function handleRequest(request, response) {
   }
 
   if (request.method === "GET" && pathname === "/api/admin/shipments") {
-    const session = requireSeller(request);
+    const session = await requireSeller(request);
 
     if (!session) {
       sendJson(response, 401, { error: "Inicia sesion como administrador." });
@@ -2597,7 +2643,7 @@ async function handleRequest(request, response) {
     request.method === "POST" &&
     pathname === "/api/admin/shipments/deliver"
   ) {
-    const session = requireSeller(request);
+    const session = await requireSeller(request);
 
     if (!session) {
       sendJson(response, 401, { error: "Inicia sesion como administrador." });
@@ -2613,7 +2659,7 @@ async function handleRequest(request, response) {
   }
 
   if (request.method === "GET" && pathname === "/api/admin/users") {
-    const session = requireSeller(request);
+    const session = await requireSeller(request);
 
     if (!session) {
       sendJson(response, 401, { error: "Inicia sesion como administrador." });
@@ -2630,7 +2676,7 @@ async function handleRequest(request, response) {
     request.method === "GET" &&
     /^\/api\/admin\/users\/\d+\/cards$/.test(pathname)
   ) {
-    const session = requireSeller(request);
+    const session = await requireSeller(request);
 
     if (!session) {
       sendJson(response, 401, { error: "Inicia sesion como administrador." });
@@ -2643,7 +2689,7 @@ async function handleRequest(request, response) {
   }
 
   if (request.method === "POST" && pathname === "/api/admin/stock") {
-    const session = requireSeller(request);
+    const session = await requireSeller(request);
 
     if (!session) {
       sendJson(response, 401, { error: "Inicia sesion como administrador." });
@@ -2657,7 +2703,7 @@ async function handleRequest(request, response) {
   }
 
   if (request.method === "PUT" && pathname.startsWith("/api/admin/stock/")) {
-    const session = requireSeller(request);
+    const session = await requireSeller(request);
 
     if (!session) {
       sendJson(response, 401, { error: "Inicia sesion como administrador." });
@@ -2680,7 +2726,7 @@ async function handleRequest(request, response) {
     pathname.startsWith("/api/packs/") &&
     pathname.endsWith("/open")
   ) {
-    const session = requireUser(request);
+    const session = await requireUser(request);
 
     if (!session) {
       sendJson(response, 401, { error: "Inicia sesion." });
@@ -2695,7 +2741,7 @@ async function handleRequest(request, response) {
   }
 
   if (request.method === "POST" && pathname === "/api/packs") {
-    const session = requireSeller(request);
+    const session = await requireSeller(request);
 
     if (!session) {
       sendJson(response, 401, { error: "Inicia sesion como administrador." });
@@ -2709,7 +2755,7 @@ async function handleRequest(request, response) {
   }
 
   if (request.method === "DELETE" && pathname.startsWith("/api/packs/")) {
-    const session = requireSeller(request);
+    const session = await requireSeller(request);
 
     if (!session) {
       sendJson(response, 401, { error: "Inicia sesion como administrador." });
@@ -2727,12 +2773,23 @@ async function handleRequest(request, response) {
 
 const server = createServer((request, response) => {
   handleRequest(request, response).catch((error) => {
+    const status = Number.isInteger(error?.status) ? error.status : 500;
+
+    if (status >= 500) {
+      console.error(`[${request.method} ${request.url}]`, error);
+    }
+
+    if (response.headersSent) {
+      response.end();
+      return;
+    }
+
     setCorsHeaders(request, response);
-    sendJson(response, error.status ?? 500, {
+    sendJson(response, status, {
       error:
-        error instanceof Error
+        status < 500 && error instanceof Error
           ? error.message
-          : "Error inesperado en el API local.",
+          : "Error inesperado en el servidor.",
     });
   });
 });
@@ -2744,6 +2801,13 @@ if (process.argv.includes("--migrate-only")) {
   await pool.end();
   pool = undefined;
 } else {
+  await deleteExpiredSessions();
+  setInterval(() => {
+    deleteExpiredSessions().catch((error) =>
+      console.error("No se pudieron limpiar sesiones vencidas:", error),
+    );
+  }, 1000 * 60 * 60).unref();
+
   server.listen(config.port, config.host, () => {
     console.log(`Pullario API listo en http://${config.host}:${config.port}`);
   });
