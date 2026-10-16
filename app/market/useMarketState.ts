@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAdminOrders } from "./admin/useAdminOrders";
 import { useAdminPacks } from "./admin/useAdminPacks";
 import { useAdminStock } from "./admin/useAdminStock";
 import { apiFetch, authHeader, clearStoredSession } from "./api";
@@ -25,9 +26,7 @@ import type {
   RecentDrop,
   RecentDropsResponse,
   RouletteState,
-  ShipOrdersResponse,
   ShopOrderItem,
-  ShopOrdersResponse,
   ShopShipmentsResponse,
   UserCardItem,
 } from "./types";
@@ -415,12 +414,28 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     stockQuantityForCard,
     updateStockQuantity,
   } = adminStock;
-  const [shopOrders, setShopOrders] = useState<ShopOrderItem[]>([]);
-  const [ordersMessage, setOrdersMessage] = useState("");
-  const [selectedShipmentIds, setSelectedShipmentIds] = useState<number[]>([]);
-  const [shippingModalOpen, setShippingModalOpen] = useState(false);
-  const [shipmentTrackingNumber, setShipmentTrackingNumber] = useState("");
-  const [shippingOrders, setShippingOrders] = useState(false);
+  const adminOrders = useAdminOrders({ session });
+  const {
+    groupedShopOrders,
+    loadShopOrders,
+    markSelectedOrdersShipped,
+    ordersMessage,
+    selectedShipmentIds,
+    selectedShipmentsReady,
+    selectedShipmentUserId,
+    setOrdersMessage,
+    setSelectedShipmentIds,
+    setShipmentTrackingNumber,
+    setShippingModalOpen,
+    setShippingOrders,
+    setShopOrders,
+    shipmentTrackingNumber,
+    shippingModalOpen,
+    shippingOrders,
+    shopOrders,
+    toggleShipmentSelection,
+    withdrawnOrderCount,
+  } = adminOrders;
   const [activeShipments, setActiveShipments] = useState<ShopOrderItem[]>([]);
   const [shipmentHistory, setShipmentHistory] = useState<ShopOrderItem[]>([]);
   const [shipmentView, setShipmentView] = useState<"active" | "history">(
@@ -459,114 +474,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
   const spinTimers = useRef<number[]>([]);
   const rouletteTrackRef = useRef<HTMLDivElement | null>(null);
   const rouletteTickFrameRef = useRef<number | null>(null);
-
-  const loadShopOrders = useCallback(async () => {
-    if (!session || !isSellerRole(session.role)) {
-      return [];
-    }
-
-    try {
-      const response = await apiFetch("/api/admin/orders", {
-        headers: {
-          ...authHeader(session),
-        },
-      });
-      const payload = (await response.json()) as ShopOrdersResponse;
-
-      if (!response.ok || payload.error || !Array.isArray(payload.orders)) {
-        throw new Error(payload.error ?? "No se pudieron leer los pedidos.");
-      }
-
-      setShopOrders(payload.orders);
-      setOrdersMessage("");
-      const activeOrderIds = new Set(payload.orders.map((order) => order.id));
-      setSelectedShipmentIds((current) =>
-        current.filter((orderId) => activeOrderIds.has(orderId)),
-      );
-      return payload.orders;
-    } catch (error) {
-      setOrdersMessage(
-        error instanceof Error
-          ? error.message
-          : "No se pudieron leer los pedidos.",
-      );
-      return [];
-    }
-  }, [session]);
-
-  const toggleShipmentSelection = (orderId: number) => {
-    const targetOrder = shopOrders.find((order) => order.id === orderId);
-
-    if (!targetOrder) {
-      return;
-    }
-
-    setSelectedShipmentIds((current) => {
-      if (current.includes(orderId)) {
-        return current.filter((id) => id !== orderId);
-      }
-
-      const selectedUserId = shopOrders.find(
-        (order) => order.id === current[0],
-      )?.userId;
-
-      return selectedUserId && selectedUserId !== targetOrder.userId
-        ? [orderId]
-        : [...current, orderId];
-    });
-  };
-
-  const markSelectedOrdersShipped = async () => {
-    if (
-      !session ||
-      !isSellerRole(session.role) ||
-      !selectedShipmentsReady ||
-      shipmentTrackingNumber.trim().length < 3
-    ) {
-      return;
-    }
-
-    setShippingOrders(true);
-    setOrdersMessage("");
-
-    try {
-      const response = await apiFetch("/api/admin/orders/ship", {
-        method: "POST",
-        headers: {
-          ...authHeader(session),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          shipments: selectedShipmentIds.map((id) => ({
-            id,
-            trackingNumber: shipmentTrackingNumber.trim(),
-          })),
-        }),
-      });
-      const payload = (await response.json()) as ShipOrdersResponse;
-
-      if (!response.ok || payload.error || !payload.ok) {
-        throw new Error(payload.error ?? "No se pudieron confirmar los envios.");
-      }
-
-      const shippedCount = payload.shippedCount ?? selectedShipmentIds.length;
-      setSelectedShipmentIds([]);
-      setShipmentTrackingNumber("");
-      setShippingModalOpen(false);
-      await loadShopOrders();
-      setOrdersMessage(
-        `${shippedCount} ${shippedCount === 1 ? "retiro marcado" : "retiros marcados"} como enviado.`,
-      );
-    } catch (error) {
-      setOrdersMessage(
-        error instanceof Error
-          ? error.message
-          : "No se pudieron confirmar los envios.",
-      );
-    } finally {
-      setShippingOrders(false);
-    }
-  };
 
   const loadShopShipments = useCallback(async () => {
     if (!session || !isSellerRole(session.role)) {
@@ -746,18 +653,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
   }, []);
 
   useEffect(() => {
-    if (!isSellerRole(session?.role)) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      void loadShopOrders();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [loadShopOrders, session?.role]);
-
-  useEffect(() => {
     if (
       !isSellerRole(session?.role) ||
       (view !== "admin-shipments" && view !== "admin")
@@ -855,42 +750,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
       spinKey: `idle-${selectedPack.id}-${index}`,
     }));
   }, [selectedPack]);
-  const withdrawnOrderCount = shopOrders.filter(
-    (item) => item.status === "withdrawn",
-  ).length;
-  const groupedShopOrders = Object.values(
-    shopOrders.reduce<
-      Record<
-        string,
-        {
-          userId: number;
-          username: string;
-          displayName?: string;
-          orders: ShopOrderItem[];
-        }
-      >
-    >((groups, order) => {
-      const key = String(order.userId);
-      const group = groups[key] ?? {
-        userId: order.userId,
-        username: order.username,
-        displayName: order.displayName,
-        orders: [],
-      };
-
-      group.orders.push(order);
-      groups[key] = group;
-      return groups;
-    }, {}),
-  ).sort((left, right) =>
-    (left.displayName || left.username).localeCompare(
-      right.displayName || right.username,
-    ),
-  );
-  const selectedShipmentsReady = selectedShipmentIds.length > 0;
-  const selectedShipmentUserId = shopOrders.find(
-    (order) => order.id === selectedShipmentIds[0],
-  )?.userId;
   const groupShipmentItems = (items: ShopOrderItem[]) =>
     Object.values(
       items.reduce<
