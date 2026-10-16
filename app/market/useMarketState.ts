@@ -1,13 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CardGame, ExternalCard, PrizeItemType } from "../lib/card-search";
-import {
-  apiFetch,
-  authHeader,
-  clearLegacyStoredSession,
-  clearStoredSession,
-  readStoredSession,
-  saveStoredSession,
-} from "./api";
+import { apiFetch, authHeader, clearStoredSession } from "./api";
+import { useAuth } from "./auth/useAuth";
 import {
   cardGames,
   gameAccents,
@@ -25,12 +19,14 @@ import {
 import { demoPacks } from "./demo-packs";
 import { formatUsd } from "./format";
 import { useCatalog } from "./home/useCatalog";
+import { useNotice } from "./layout/useNotice";
 import {
   normalizedProbability,
   normalizeItems,
   packExpectedValue,
   weightedPick,
 } from "./pack-math";
+import { useProfileForm } from "./profile/useProfileForm";
 import type {
   AdminUserCardsResponse,
   AdminUsersResponse,
@@ -39,7 +35,6 @@ import type {
   BoosterPack,
   ChangerPlayResponse,
   DeliverShipmentResponse,
-  LoginResponse,
   MarketProps,
   OpenPackResponse,
   PackGame,
@@ -51,7 +46,6 @@ import type {
   SearchResponse,
   SearchState,
   SelectedCardDetails,
-  SessionAuth,
   ShipOrdersResponse,
   ShopOrderItem,
   ShopOrdersResponse,
@@ -82,35 +76,98 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     setSavedPacks,
     setSelectedPackId,
   } = catalog;
-
-  const [session, setSession] = useState<SessionAuth | null>(null);
-  const [authMode, setAuthMode] = useState<"login" | "register">("login");
-  const [loginUsername, setLoginUsername] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
-  const [loginEmail, setLoginEmail] = useState("");
-  const [authMessage, setAuthMessage] = useState("");
-  const [homeAuthOpen, setHomeAuthOpen] = useState(false);
+  const notice = useNotice();
+  const {
+    setWonCardsMessage,
+    setWonCardsMessageTone,
+    wonCardsMessage,
+    wonCardsMessageTone,
+  } = notice;
+  const profileForm = useProfileForm();
+  const {
+    clearProfileForm,
+    fillProfileForm,
+    profileAddressReference,
+    profileApartment,
+    profileCity,
+    profileCountry,
+    profileDisplayName,
+    profileEmail,
+    profileFloor,
+    profileFullName,
+    profileMessage,
+    profilePassword,
+    profilePhone,
+    profilePostalCode,
+    profileProvince,
+    profileSaving,
+    profileSectionView,
+    profileStreet,
+    profileStreetNumber,
+    setProfileAddressReference,
+    setProfileApartment,
+    setProfileCity,
+    setProfileCountry,
+    setProfileDisplayName,
+    setProfileEmail,
+    setProfileFloor,
+    setProfileFullName,
+    setProfileMessage,
+    setProfilePassword,
+    setProfilePhone,
+    setProfilePostalCode,
+    setProfileProvince,
+    setProfileSaving,
+    setProfileSectionView,
+    setProfileStreet,
+    setProfileStreetNumber,
+  } = profileForm;
+  const auth = useAuth({
+    fillProfileForm,
+    loadDbPacks,
+    profileAddressReference,
+    profileApartment,
+    profileCity,
+    profileCountry,
+    profileDisplayName,
+    profileEmail,
+    profileFloor,
+    profileFullName,
+    profilePassword,
+    profilePhone,
+    profilePostalCode,
+    profileProvince,
+    profileStreet,
+    profileStreetNumber,
+    setApiStatus,
+    setProfileMessage,
+    setProfilePassword,
+    setProfileSaving,
+    setWonCardsMessage,
+    setWonCardsMessageTone,
+  });
+  const {
+    authMessage,
+    authMode,
+    homeAuthOpen,
+    loginEmail,
+    loginPassword,
+    loginUsername,
+    session,
+    setAuthMessage,
+    setAuthMode,
+    setHomeAuthOpen,
+    setLoginEmail,
+    setLoginPassword,
+    setLoginUsername,
+    setSession,
+    storeSession,
+    submitAuth,
+    updateProfile,
+    updateSessionUser,
+  } = auth;
   const [adminMessage, setAdminMessage] = useState("");
   const [adminSaving, setAdminSaving] = useState(false);
-  const [profileDisplayName, setProfileDisplayName] = useState("");
-  const [profileEmail, setProfileEmail] = useState("");
-  const [profileFullName, setProfileFullName] = useState("");
-  const [profilePhone, setProfilePhone] = useState("");
-  const [profileStreet, setProfileStreet] = useState("");
-  const [profileStreetNumber, setProfileStreetNumber] = useState("");
-  const [profileFloor, setProfileFloor] = useState("");
-  const [profileApartment, setProfileApartment] = useState("");
-  const [profileAddressReference, setProfileAddressReference] = useState("");
-  const [profileCity, setProfileCity] = useState("");
-  const [profileProvince, setProfileProvince] = useState("");
-  const [profilePostalCode, setProfilePostalCode] = useState("");
-  const [profileCountry, setProfileCountry] = useState("Argentina");
-  const [profilePassword, setProfilePassword] = useState("");
-  const [profileMessage, setProfileMessage] = useState("");
-  const [profileSaving, setProfileSaving] = useState(false);
-  const [profileSectionView, setProfileSectionView] = useState<
-    "personal" | "inventory"
-  >("personal");
   const [publicSearch, setPublicSearch] = useState<SearchState>(
     newSearchState("one-piece", ""),
   );
@@ -126,10 +183,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
   const [walletSaving, setWalletSaving] = useState(false);
   const [wonCardsOpen, setWonCardsOpen] = useState(false);
   const [wonCards, setWonCards] = useState<UserCardItem[]>([]);
-  const [wonCardsMessage, setWonCardsMessage] = useState("");
-  const [wonCardsMessageTone, setWonCardsMessageTone] = useState<
-    "info" | "success" | "warning" | "error"
-  >("info");
   const [wonCardBusyId, setWonCardBusyId] = useState<number | null>(null);
   const [upgraderTargets, setUpgraderTargets] = useState<ShopStockItem[]>([]);
   const [upgraderStakeIds, setUpgraderStakeIds] = useState<number[]>([]);
@@ -252,85 +305,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
   const upgraderNeedleRef = useRef<HTMLDivElement | null>(null);
   const upgraderTickFrameRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    if (!wonCardsMessage) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => setWonCardsMessage(""), 8000);
-    return () => window.clearTimeout(timer);
-  }, [wonCardsMessage]);
-
-  useEffect(() => {
-    const storedSession = readStoredSession();
-
-    if (!storedSession) {
-      return;
-    }
-
-    saveStoredSession(storedSession);
-    clearLegacyStoredSession();
-    setSession(storedSession);
-    setProfileDisplayName(storedSession.displayName ?? "");
-    setProfileEmail(storedSession.email ?? "");
-    setProfileFullName(storedSession.fullName ?? "");
-    setProfilePhone(storedSession.phone ?? "");
-    setProfileStreet(storedSession.street ?? storedSession.addressLine1 ?? "");
-    setProfileStreetNumber(storedSession.streetNumber ?? "");
-    setProfileFloor(storedSession.floor ?? "");
-    setProfileApartment(storedSession.apartment ?? "");
-    setProfileAddressReference(
-      storedSession.addressReference ?? storedSession.addressLine2 ?? "",
-    );
-    setProfileCity(storedSession.city ?? "");
-    setProfileProvince(storedSession.province ?? "");
-    setProfilePostalCode(storedSession.postalCode ?? "");
-    setProfileCountry(storedSession.country?.trim() || "Argentina");
-
-    void apiFetch("/api/me", {
-      headers: { ...authHeader(storedSession) },
-    })
-      .then(async (response) => {
-        const payload = (await response.json()) as LoginResponse;
-
-        if (!response.ok || !payload.user) {
-          if (response.status === 401) {
-            setSession(null);
-            clearStoredSession();
-          }
-          return;
-        }
-
-        const refreshedSession: SessionAuth = {
-          ...storedSession,
-          ...payload.user,
-          token: storedSession.token,
-        };
-        setSession(refreshedSession);
-        saveStoredSession(refreshedSession);
-        setProfileDisplayName(refreshedSession.displayName ?? "");
-        setProfileEmail(refreshedSession.email ?? "");
-        setProfileFullName(refreshedSession.fullName ?? "");
-        setProfilePhone(refreshedSession.phone ?? "");
-        setProfileStreet(
-          refreshedSession.street ?? refreshedSession.addressLine1 ?? "",
-        );
-        setProfileStreetNumber(refreshedSession.streetNumber ?? "");
-        setProfileFloor(refreshedSession.floor ?? "");
-        setProfileApartment(refreshedSession.apartment ?? "");
-        setProfileAddressReference(
-          refreshedSession.addressReference ??
-            refreshedSession.addressLine2 ??
-            "",
-        );
-        setProfileCity(refreshedSession.city ?? "");
-        setProfileProvince(refreshedSession.province ?? "");
-        setProfilePostalCode(refreshedSession.postalCode ?? "");
-        setProfileCountry(refreshedSession.country?.trim() || "Argentina");
-      })
-      .catch(() => undefined);
-  }, []);
-
   const loadWonCards = useCallback(async () => {
     if (!session) {
       return [];
@@ -357,7 +331,7 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
       );
       return [];
     }
-  }, [session]);
+  }, [session, setWonCardsMessage, setWonCardsMessageTone]);
 
   const loadUpgraderOptions = useCallback(async () => {
     setUpgraderLoading(true);
@@ -390,7 +364,7 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     } finally {
       setUpgraderLoading(false);
     }
-  }, [session]);
+  }, [session, setWonCardsMessage, setWonCardsMessageTone]);
 
   const loadChangerOptions = useCallback(async () => {
     setChangerLoading(true);
@@ -423,7 +397,7 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     } finally {
       setChangerLoading(false);
     }
-  }, [session]);
+  }, [session, setWonCardsMessage, setWonCardsMessageTone]);
 
   const loadShopStock = useCallback(async () => {
     if (!session || !isSellerRole(session.role)) {
@@ -1446,108 +1420,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     }
   };
 
-  const storeSession = (nextSession: SessionAuth) => {
-    setSession(nextSession);
-    saveStoredSession(nextSession);
-    setProfileDisplayName(nextSession.displayName ?? "");
-    setProfileEmail(nextSession.email ?? "");
-    setProfileFullName(nextSession.fullName ?? "");
-    setProfilePhone(nextSession.phone ?? "");
-    setProfileStreet(nextSession.street ?? nextSession.addressLine1 ?? "");
-    setProfileStreetNumber(nextSession.streetNumber ?? "");
-    setProfileFloor(nextSession.floor ?? "");
-    setProfileApartment(nextSession.apartment ?? "");
-    setProfileAddressReference(
-      nextSession.addressReference ?? nextSession.addressLine2 ?? "",
-    );
-    setProfileCity(nextSession.city ?? "");
-    setProfileProvince(nextSession.province ?? "");
-    setProfilePostalCode(nextSession.postalCode ?? "");
-    setProfileCountry(nextSession.country?.trim() || "Argentina");
-  };
-
-  const updateSessionUser = (user?: LoginResponse["user"]) => {
-    if (!session || !user) {
-      return;
-    }
-
-    storeSession({
-      ...session,
-      username: user.username,
-      role: user.role,
-      displayName: user.displayName,
-      email: user.email,
-      fullName: user.fullName,
-      phone: user.phone,
-      addressLine1: user.addressLine1,
-      addressLine2: user.addressLine2,
-      street: user.street,
-      streetNumber: user.streetNumber,
-      floor: user.floor,
-      apartment: user.apartment,
-      addressReference: user.addressReference,
-      city: user.city,
-      province: user.province,
-      postalCode: user.postalCode,
-      country: user.country,
-      hasShippingAddress: user.hasShippingAddress,
-      shippingAddressMissing: user.shippingAddressMissing,
-      balanceUsd: user.balanceUsd,
-    });
-  };
-
-  const submitAuth = async () => {
-    setAuthMessage("");
-    setApiStatus("checking");
-    let nextApiStatus: ApiStatus = "offline";
-
-    try {
-      const response = await apiFetch(
-        authMode === "login" ? "/api/auth/login" : "/api/auth/register",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            username: loginUsername,
-            password: loginPassword,
-            email: loginEmail,
-          }),
-        },
-      );
-      const payload = (await response.json()) as LoginResponse;
-      nextApiStatus = response.status >= 500 ? "offline" : "online";
-
-      if (!response.ok || payload.error || !payload.token || !payload.user) {
-        throw new Error(payload.error ?? "No se pudo iniciar sesion.");
-      }
-
-      const auth: SessionAuth = {
-        token: payload.token,
-        ...payload.user,
-      };
-
-      storeSession(auth);
-      setHomeAuthOpen(false);
-      setLoginPassword("");
-      setApiStatus("online");
-      setAuthMessage(
-        payload.user.role === "admin"
-          ? "Sesion admin iniciada."
-          : "Sesion iniciada.",
-      );
-      await loadDbPacks();
-    } catch (error) {
-      setApiStatus(nextApiStatus);
-      setAuthMessage(
-        error instanceof Error
-          ? error.message
-          : "No se pudo conectar con el servidor local.",
-      );
-    }
-  };
-
   const logout = () => {
     if (session) {
       void apiFetch("/api/auth/logout", {
@@ -1561,20 +1433,7 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     setSession(null);
     clearStoredSession();
     setAuthMessage("Sesion cerrada.");
-    setProfileDisplayName("");
-    setProfileEmail("");
-    setProfileFullName("");
-    setProfilePhone("");
-    setProfileStreet("");
-    setProfileStreetNumber("");
-    setProfileFloor("");
-    setProfileApartment("");
-    setProfileAddressReference("");
-    setProfileCity("");
-    setProfileProvince("");
-    setProfilePostalCode("");
-    setProfileCountry("Argentina");
-    setProfilePassword("");
+    clearProfileForm();
     setWonCards([]);
     setShopStock([]);
     setShopOrders([]);
@@ -2409,84 +2268,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
       );
     } finally {
       setAdminSaving(false);
-    }
-  };
-
-  const updateProfile = async () => {
-    if (!session) {
-      setProfileMessage("Inicia sesion para editar tu perfil.");
-      return;
-    }
-
-    setProfileSaving(true);
-    setProfileMessage("");
-
-    try {
-      const response = await apiFetch("/api/me", {
-        method: "PUT",
-        headers: {
-          ...authHeader(session),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          displayName: profileDisplayName,
-          email: profileEmail,
-          fullName: profileFullName,
-          phone: profilePhone,
-          street: profileStreet,
-          streetNumber: profileStreetNumber,
-          floor: profileFloor,
-          apartment: profileApartment,
-          addressReference: profileAddressReference,
-          city: profileCity,
-          province: profileProvince,
-          postalCode: profilePostalCode,
-          country: profileCountry.trim() || "Argentina",
-          password: profilePassword,
-        }),
-      });
-      const payload = (await response.json()) as LoginResponse;
-
-      if (!response.ok || payload.error || !payload.user) {
-        throw new Error(payload.error ?? "No se pudo actualizar el perfil.");
-      }
-
-      const nextSession: SessionAuth = {
-        ...session,
-        username: payload.user.username,
-        role: payload.user.role,
-        displayName: payload.user.displayName,
-        email: payload.user.email,
-        fullName: payload.user.fullName,
-        phone: payload.user.phone,
-        addressLine1: payload.user.addressLine1,
-        addressLine2: payload.user.addressLine2,
-        street: payload.user.street,
-        streetNumber: payload.user.streetNumber,
-        floor: payload.user.floor,
-        apartment: payload.user.apartment,
-        addressReference: payload.user.addressReference,
-        city: payload.user.city,
-        province: payload.user.province,
-        postalCode: payload.user.postalCode,
-        country: payload.user.country,
-        hasShippingAddress: payload.user.hasShippingAddress,
-        shippingAddressMissing: payload.user.shippingAddressMissing,
-        balanceUsd: payload.user.balanceUsd,
-      };
-
-      storeSession(nextSession);
-      setProfilePassword("");
-      setWonCardsMessageTone("success");
-      setWonCardsMessage("Perfil actualizado.");
-    } catch (error) {
-      setProfileMessage(
-        error instanceof Error
-          ? error.message
-          : "No se pudo actualizar el perfil.",
-      );
-    } finally {
-      setProfileSaving(false);
     }
   };
 

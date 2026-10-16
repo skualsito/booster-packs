@@ -4,6 +4,7 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import type { CardGame, PrizeItemType } from "./lib/card-search";
+import { AuthModal } from "./market/auth/AuthPanel";
 import {
   cardImage,
   handleImageError,
@@ -31,6 +32,8 @@ import {
 } from "./market/constants";
 import { formatCardDate, formatPercent, formatUsd } from "./market/format";
 import { HomeView } from "./market/home/HomeSections";
+import { AppHeader } from "./market/layout/AppHeader";
+import { NoticeToast } from "./market/layout/NoticeToast";
 import { SiteFooter } from "./market/layout/SiteFooter";
 import { MarketContext } from "./market/MarketContext";
 import { normalizedProbability, normalizeItems } from "./market/pack-math";
@@ -42,13 +45,11 @@ import {
   ArrowUpDown,
   Boxes,
   CircleCheck,
-  CircleX,
   Database,
   Dice5,
   Eye,
   Home,
   Info,
-  LockKeyhole,
   LogIn,
   PackageOpen,
   Pencil,
@@ -58,14 +59,12 @@ import {
   Search,
   Send,
   Settings,
-  ShieldCheck,
   Sparkles,
   Trash2,
   TriangleAlert,
   Trophy,
   Truck,
   User,
-  UserPlus,
   Wallet,
   X,
 } from "./MaterialIcons";
@@ -101,7 +100,6 @@ export function BoosterMarket({
     adminUserWithdrawalGroups,
     apiStatus,
     authMessage,
-    authMode,
     celebratingRunId,
     changerGame,
     changerLoading,
@@ -132,7 +130,6 @@ export function BoosterMarket({
     filteredShopStock,
     filteredUpgraderTargets,
     groupedShopOrders,
-    homeAuthOpen,
     idleRouletteItems,
     inventoryActiveOnly,
     inventoryPriceSort,
@@ -143,10 +140,6 @@ export function BoosterMarket({
     loadShopShipments,
     loadShopStock,
     loadWonCards,
-    loginEmail,
-    loginPassword,
-    loginUsername,
-    logout,
     manualSealedOpen,
     markSelectedOrdersShipped,
     markShipmentReceived,
@@ -232,9 +225,6 @@ export function BoosterMarket({
     setHomeAuthOpen,
     setInventoryActiveOnly,
     setInventoryPriceSort,
-    setLoginEmail,
-    setLoginPassword,
-    setLoginUsername,
     setManualSealedOpen,
     setPackPrizeFilter,
     setPackStockGameFilter,
@@ -286,7 +276,6 @@ export function BoosterMarket({
     setUpgraderTargetQuantity,
     setWalletAmount,
     setWalletOpen,
-    setWonCardsMessage,
     setWonCardsOpen,
     shipmentBusyKey,
     shipmentHistoryGroups,
@@ -312,7 +301,6 @@ export function BoosterMarket({
     stockPrizeFilter,
     stockQuantityDrafts,
     stockQuantityForCard,
-    submitAuth,
     toggleChangerStake,
     toggleShipmentSelection,
     toggleUpgraderStake,
@@ -355,105 +343,8 @@ export function BoosterMarket({
     withdrawnOrderCount,
     withdrawWonCard,
     wonCardBusyId,
-    wonCardsMessage,
-    wonCardsMessageTone,
     wonCardsOpen,
   } = market;
-
-  const authPanel = session ? (
-    <div className="auth-panel logged-in">
-      <span className="eyebrow">Sesion activa</span>
-      <h3>{session.displayName || session.username}</h3>
-      <p>{roleLabels[session.role]}</p>
-      <div className="auth-actions">
-        <Link className="secondary-action compact" href="/profile">
-          <User size={17} aria-hidden />
-          Mi cuenta
-        </Link>
-        {isSellerRole(session.role) && (
-          <Link className="primary-action compact" href="/admin">
-            <Settings size={17} aria-hidden />
-            Abrir administrador
-          </Link>
-        )}
-        <button className="secondary-action compact" onClick={logout} type="button">
-          <LockKeyhole size={17} aria-hidden />
-          Salir
-        </button>
-      </div>
-      {authMessage && <p className="admin-message">{authMessage}</p>}
-    </div>
-  ) : (
-    <form
-      className="auth-panel"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void submitAuth();
-      }}
-    >
-      <div className="auth-switch" aria-label="Modo de acceso">
-        <button
-          className={authMode === "login" ? "active" : ""}
-          onClick={() => setAuthMode("login")}
-          type="button"
-        >
-          <LogIn size={16} aria-hidden />
-          Entrar
-        </button>
-        <button
-          className={authMode === "register" ? "active" : ""}
-          onClick={() => setAuthMode("register")}
-          type="button"
-        >
-          <UserPlus size={16} aria-hidden />
-          Registrarse
-        </button>
-      </div>
-      <label>
-        Usuario
-        <input
-          autoComplete="username"
-          onChange={(event) => setLoginUsername(event.target.value)}
-          value={loginUsername}
-        />
-      </label>
-      {authMode === "register" && (
-        <label>
-          Email
-          <input
-            autoComplete="email"
-            onChange={(event) => setLoginEmail(event.target.value)}
-            type="email"
-            value={loginEmail}
-          />
-        </label>
-      )}
-      <label>
-        Password
-        <input
-          autoComplete={
-            authMode === "register" ? "new-password" : "current-password"
-          }
-          onChange={(event) => setLoginPassword(event.target.value)}
-          type="password"
-          value={loginPassword}
-        />
-      </label>
-      <button
-        className="primary-action compact"
-        disabled={!loginUsername.trim() || !loginPassword.trim()}
-        type="submit"
-      >
-        {authMode === "register" ? (
-          <UserPlus size={17} aria-hidden />
-        ) : (
-          <ShieldCheck size={17} aria-hidden />
-        )}
-        {authMode === "register" ? "Crear cuenta" : "Iniciar sesion"}
-      </button>
-      {authMessage && <p className="admin-message">{authMessage}</p>}
-    </form>
-  );
 
   const openingSection = (
     <section className="case-layout" aria-label="Abrir caja">
@@ -3462,121 +3353,7 @@ export function BoosterMarket({
   return (
     <MarketContext.Provider value={market}>
     <main className="market-shell design-v3">
-      <header className="app-header">
-        <Link className="brand-link" href="/">
-          <PackageOpen size={20} aria-hidden />
-          Pullario
-        </Link>
-        <nav className="app-nav" aria-label="Navegacion principal">
-          <div className="nav-cluster nav-pages">
-            <Link className={view === "home" ? "active" : ""} href="/">
-              <Home size={16} aria-hidden />
-              Cajas
-            </Link>
-            <Link
-              className={view === "upgrader" ? "active" : ""}
-              href="/upgrader"
-            >
-              <ArrowUpDown size={16} aria-hidden />
-              Upgrader
-            </Link>
-            <Link
-              className={view === "changer" ? "active" : ""}
-              href="/changer"
-            >
-              <ArrowRight size={16} aria-hidden />
-              Changer
-            </Link>
-            <Link className={view === "cards" ? "active" : ""} href="/cards">
-              <Search size={16} aria-hidden />
-              Cartas
-            </Link>
-            <Link href="/#como-funciona">
-              <Info size={16} aria-hidden />
-              Guia
-            </Link>
-            <Link href="/#confianza">
-              <ShieldCheck size={16} aria-hidden />
-              Confianza
-            </Link>
-          </div>
-          {session && (
-            <div className="nav-cluster nav-session">
-              <button
-                className="nav-value nav-value-wins"
-                onClick={() => {
-                  setWonCardsOpen(true);
-                  void loadWonCards();
-                }}
-                type="button"
-              >
-                <Trophy size={17} aria-hidden />
-                <span>
-                  <strong>{formatUsd.format(ownedWonCardsValue)}</strong>
-                  <small>Premios ganados</small>
-                </span>
-              </button>
-              <button
-                className="nav-value nav-value-wallet"
-                onClick={() => setWalletOpen(true)}
-                type="button"
-              >
-                <Wallet size={17} aria-hidden />
-                <span>
-                  <strong>{formatUsd.format(session.balanceUsd ?? 0)}</strong>
-                  <small>Cartera</small>
-                </span>
-              </button>
-              <Link
-                className={`nav-user ${view === "profile" ? "active" : ""}`}
-                href="/profile"
-              >
-                <User size={16} aria-hidden />
-                <span>{session.displayName || session.username}</span>
-              </Link>
-            </div>
-          )}
-          {!session && (
-            <div className="nav-cluster nav-auth">
-              <button
-                className="nav-login-button"
-                onClick={() => {
-                  setAuthMode("login");
-                  setHomeAuthOpen(true);
-                }}
-                type="button"
-              >
-                <LogIn size={16} aria-hidden />
-                Entrar
-              </button>
-            </div>
-          )}
-          {(isSellerRole(session?.role) || session) && (
-            <div className="nav-cluster nav-tools">
-              {isSellerRole(session?.role) && (
-                <Link
-                  className={view.startsWith("admin") ? "active" : ""}
-                  href="/admin"
-                >
-                  <Settings size={16} aria-hidden />
-                  Admin
-                </Link>
-              )}
-              {session && (
-                <button
-                  aria-label="Cerrar sesion"
-                  className="nav-icon-button"
-                  onClick={logout}
-                  type="button"
-                >
-                  <LockKeyhole size={16} aria-hidden />
-                  <span>Salir</span>
-                </button>
-              )}
-            </div>
-          )}
-        </nav>
-      </header>
+      <AppHeader />
 
       <div
         className={`page-transition ${
@@ -3603,32 +3380,7 @@ export function BoosterMarket({
         <SiteFooter />
       </div>
 
-      {homeAuthOpen && !session && (
-        <div
-          className="modal-backdrop"
-          onKeyDown={(event) => {
-            if (event.key === "Escape") setHomeAuthOpen(false);
-          }}
-          role="presentation"
-        >
-          <article
-            aria-label="Acceso a Pullario"
-            aria-modal="true"
-            className="utility-modal home-auth-modal"
-            role="dialog"
-          >
-            <button
-              aria-label="Cerrar acceso"
-              className="modal-close"
-              onClick={() => setHomeAuthOpen(false)}
-              type="button"
-            >
-              <X size={18} aria-hidden />
-            </button>
-            {authPanel}
-          </article>
-        </div>
-      )}
+      <AuthModal />
 
       {shippingModalOpen && (
         <div
@@ -3975,31 +3727,7 @@ export function BoosterMarket({
         </div>
       )}
 
-      {wonCardsMessage && (
-        <div
-          aria-live="polite"
-          className={`notice-toast ${wonCardsMessageTone}`}
-          role={wonCardsMessageTone === "error" ? "alert" : "status"}
-        >
-          {wonCardsMessageTone === "success" ? (
-            <CircleCheck size={20} aria-hidden />
-          ) : wonCardsMessageTone === "warning" ? (
-            <TriangleAlert size={20} aria-hidden />
-          ) : wonCardsMessageTone === "error" ? (
-            <CircleX size={20} aria-hidden />
-          ) : (
-            <Info size={20} aria-hidden />
-          )}
-          <span>{wonCardsMessage}</span>
-          <button
-            aria-label="Cerrar notificacion"
-            onClick={() => setWonCardsMessage("")}
-            type="button"
-          >
-            <X size={16} aria-hidden />
-          </button>
-        </div>
-      )}
+      <NoticeToast />
 
       {selectedCard && (
         <CardModal
