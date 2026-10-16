@@ -319,3 +319,8 @@ export type RouletteState = {
   runId: number;
   result?: PackItem;
 };
+
+export type MarketProps = {
+  initialPackId?: string;
+  view: AppView;
+};
