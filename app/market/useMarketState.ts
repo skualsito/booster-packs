@@ -26,7 +26,9 @@ import {
   packExpectedValue,
   weightedPick,
 } from "./pack-math";
+import { useInventory } from "./profile/useInventory";
 import { useProfileForm } from "./profile/useProfileForm";
+import { useWallet } from "./profile/useWallet";
 import type {
   AdminUserCardsResponse,
   AdminUsersResponse,
@@ -55,8 +57,6 @@ import type {
   UpgraderOptionsResponse,
   UpgraderPlayResponse,
   UserCardItem,
-  UserCardsResponse,
-  WalletResponse,
 } from "./types";
 
 export function useMarketState({ initialPackId, view }: MarketProps) {
@@ -166,6 +166,47 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     updateProfile,
     updateSessionUser,
   } = auth;
+  const inventory = useInventory({
+    session,
+    setAuthMessage,
+    setProfileSectionView,
+    setWonCardsMessage,
+    setWonCardsMessageTone,
+    updateSessionUser,
+  });
+  const {
+    inventoryActiveOnly,
+    inventoryPriceSort,
+    loadWonCards,
+    ownedWonCards,
+    ownedWonCardsValue,
+    profilePrizeView,
+    sellWonCard,
+    setInventoryActiveOnly,
+    setInventoryPriceSort,
+    setProfilePrizeView,
+    setWonCardBusyId,
+    setWonCards,
+    setWonCardsOpen,
+    userWithdrawalGroups,
+    visibleInventoryCards,
+    withdrawWonCard,
+    wonCardBusyId,
+    wonCards,
+    wonCardsOpen,
+  } = inventory;
+  const wallet = useWallet({ session, updateSessionUser });
+  const {
+    setWalletAmount,
+    setWalletMessage,
+    setWalletOpen,
+    setWalletSaving,
+    topUpWallet,
+    walletAmount,
+    walletMessage,
+    walletOpen,
+    walletSaving,
+  } = wallet;
   const [adminMessage, setAdminMessage] = useState("");
   const [adminSaving, setAdminSaving] = useState(false);
   const [publicSearch, setPublicSearch] = useState<SearchState>(
@@ -177,13 +218,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
   const [selectedCard, setSelectedCard] = useState<SelectedCardDetails | null>(
     null,
   );
-  const [walletOpen, setWalletOpen] = useState(false);
-  const [walletAmount, setWalletAmount] = useState("50");
-  const [walletMessage, setWalletMessage] = useState("");
-  const [walletSaving, setWalletSaving] = useState(false);
-  const [wonCardsOpen, setWonCardsOpen] = useState(false);
-  const [wonCards, setWonCards] = useState<UserCardItem[]>([]);
-  const [wonCardBusyId, setWonCardBusyId] = useState<number | null>(null);
   const [upgraderTargets, setUpgraderTargets] = useState<ShopStockItem[]>([]);
   const [upgraderStakeIds, setUpgraderStakeIds] = useState<number[]>([]);
   const [upgraderTargetId, setUpgraderTargetId] = useState<number | null>(null);
@@ -207,13 +241,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
   const [changerLoading, setChangerLoading] = useState(false);
   const [changerSaving, setChangerSaving] = useState(false);
   const [changerOutcome, setChangerOutcome] = useState<ChangerPlayResponse | null>(null);
-  const [inventoryActiveOnly, setInventoryActiveOnly] = useState(false);
-  const [inventoryPriceSort, setInventoryPriceSort] = useState<
-    "price-desc" | "price-asc"
-  >("price-desc");
-  const [profilePrizeView, setProfilePrizeView] = useState<
-    "inventory" | "shipments"
-  >("inventory");
   const [shopStock, setShopStock] = useState<ShopStockItem[]>([]);
   const [stockMessage, setStockMessage] = useState("");
   const [stockBusyId, setStockBusyId] = useState<number | null>(null);
@@ -305,34 +332,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
   const upgraderNeedleRef = useRef<HTMLDivElement | null>(null);
   const upgraderTickFrameRef = useRef<number | null>(null);
 
-  const loadWonCards = useCallback(async () => {
-    if (!session) {
-      return [];
-    }
-
-    try {
-      const response = await apiFetch("/api/me/cards", {
-        headers: {
-          ...authHeader(session),
-        },
-      });
-      const payload = (await response.json()) as UserCardsResponse;
-
-      if (!response.ok || payload.error) {
-        throw new Error(payload.error ?? "No se pudo leer tus cartas.");
-      }
-
-      setWonCards(payload.cards ?? []);
-      return payload.cards ?? [];
-    } catch (error) {
-      setWonCardsMessageTone("error");
-      setWonCardsMessage(
-        error instanceof Error ? error.message : "No se pudo leer tus cartas.",
-      );
-      return [];
-    }
-  }, [session, setWonCardsMessage, setWonCardsMessageTone]);
-
   const loadUpgraderOptions = useCallback(async () => {
     setUpgraderLoading(true);
     try {
@@ -364,7 +363,7 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     } finally {
       setUpgraderLoading(false);
     }
-  }, [session, setWonCardsMessage, setWonCardsMessageTone]);
+  }, [session, setWonCardsMessage, setWonCardsMessageTone, setWonCards]);
 
   const loadChangerOptions = useCallback(async () => {
     setChangerLoading(true);
@@ -397,7 +396,7 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     } finally {
       setChangerLoading(false);
     }
-  }, [session, setWonCardsMessage, setWonCardsMessageTone]);
+  }, [session, setWonCardsMessage, setWonCardsMessageTone, setWonCards]);
 
   const loadShopStock = useCallback(async () => {
     if (!session || !isSellerRole(session.role)) {
@@ -713,18 +712,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
   }, []);
 
   useEffect(() => {
-    if (!session) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      void loadWonCards();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [loadWonCards, session]);
-
-  useEffect(() => {
     if (view !== "upgrader") {
       return;
     }
@@ -894,15 +881,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
   );
   const draftExpectedValue = packExpectedValue({ items: draftItems });
   const draftMargin = draftPrice - draftExpectedValue;
-  const ownedWonCards = session
-    ? wonCards.filter(
-        (item) => item.status === "owned" || item.status === "waiting_stock",
-      )
-    : [];
-  const ownedWonCardsValue = ownedWonCards.reduce(
-    (total, item) => total + Math.max(0, item.valueUsd),
-    0,
-  );
   const upgraderStakeCards = ownedWonCards.filter((item) =>
     upgraderStakeIds.includes(item.id),
   );
@@ -1026,62 +1004,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
         item.card.name.toLocaleLowerCase("es").includes(query) ||
         item.card.setName.toLocaleLowerCase("es").includes(query))
     );
-  });
-  const visibleInventoryCards = wonCards
-    .filter(
-      (item) =>
-        item.status !== "withdrawn" &&
-        (!inventoryActiveOnly ||
-          item.status === "owned" ||
-          item.status === "waiting_stock"),
-    )
-    .sort((left, right) =>
-      inventoryPriceSort === "price-desc"
-        ? right.valueUsd - left.valueUsd
-        : left.valueUsd - right.valueUsd,
-    );
-  const userWithdrawalGroups = Object.values(
-    wonCards
-      .filter((item) => item.status === "withdrawn")
-      .reduce<
-        Record<
-          string,
-          {
-            key: string;
-            trackingNumber?: string;
-            shipmentStatus: "pending" | "shipped" | "delivered";
-            shippedAt?: string;
-            deliveredAt?: string;
-            items: UserCardItem[];
-          }
-        >
-      >((groups, item) => {
-        const shipmentStatus = item.shipmentStatus ?? "pending";
-        const key = item.trackingNumber
-          ? `tracking:${item.trackingNumber}`
-          : `pending:${shipmentStatus}`;
-        const group = groups[key] ?? {
-          key,
-          trackingNumber: item.trackingNumber,
-          shipmentStatus,
-          shippedAt: item.shippedAt,
-          deliveredAt: item.deliveredAt,
-          items: [],
-        };
-
-        group.items.push(item);
-        group.shipmentStatus = shipmentStatus;
-        group.shippedAt = item.shippedAt ?? group.shippedAt;
-        group.deliveredAt = item.deliveredAt ?? group.deliveredAt;
-        groups[key] = group;
-        return groups;
-      }, {}),
-  ).sort((left, right) => {
-    const leftDate =
-      left.deliveredAt ?? left.shippedAt ?? left.items[0]?.acquiredAt ?? "";
-    const rightDate =
-      right.deliveredAt ?? right.shippedAt ?? right.items[0]?.acquiredAt ?? "";
-    return rightDate.localeCompare(leftDate);
   });
   const sortedDraftItems = [...draftItems].sort((left, right) => {
     const leftPrice = left.card.priceUsd ?? 0;
@@ -1783,50 +1705,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     setAdminMessage("");
   };
 
-  const topUpWallet = async () => {
-    if (!session) {
-      setWalletMessage("Inicia sesion para recargar.");
-      return;
-    }
-
-    const amount = Number(walletAmount);
-
-    if (!Number.isFinite(amount) || amount <= 0) {
-      setWalletMessage("Ingresa un monto valido mayor a cero.");
-      return;
-    }
-
-    setWalletSaving(true);
-    setWalletMessage("");
-
-    try {
-      const response = await apiFetch("/api/wallet/topup", {
-        method: "POST",
-        headers: {
-          ...authHeader(session),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ amount }),
-      });
-      const payload = (await response.json()) as WalletResponse;
-
-      if (!response.ok || payload.error || !payload.user) {
-        throw new Error(payload.error ?? "No se pudo recargar la cartera.");
-      }
-
-      updateSessionUser(payload.user);
-      setWalletMessage(`Recargaste ${formatUsd.format(amount)}.`);
-    } catch (error) {
-      setWalletMessage(
-        error instanceof Error
-          ? error.message
-          : "No se pudo recargar la cartera.",
-      );
-    } finally {
-      setWalletSaving(false);
-    }
-  };
-
   const toggleUpgraderStake = (cardId: number) => {
     if (upgraderPlaying) {
       return;
@@ -2058,108 +1936,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
       void loadChangerOptions();
     } finally {
       setChangerSaving(false);
-    }
-  };
-
-  const sellWonCard = async (cardId: number) => {
-    if (!session) {
-      return;
-    }
-
-    setWonCardBusyId(cardId);
-    setWonCardsMessage("");
-
-    try {
-      const response = await apiFetch(
-        `/api/me/cards/${encodeURIComponent(cardId)}/sell`,
-        {
-          method: "POST",
-          headers: {
-            ...authHeader(session),
-          },
-        },
-      );
-      const payload = (await response.json()) as WalletResponse;
-
-      if (!response.ok || payload.error || !payload.user) {
-        throw new Error(payload.error ?? "No se pudo vender el premio.");
-      }
-
-      updateSessionUser(payload.user);
-      setAuthMessage("");
-      void loadWonCards();
-      setWonCardsMessageTone("success");
-      setWonCardsMessage(
-        `Premio vendido por ${formatUsd.format(payload.valueUsd ?? 0)}.`,
-      );
-    } catch (error) {
-      setWonCardsMessageTone("error");
-      setWonCardsMessage(
-        error instanceof Error ? error.message : "No se pudo vender el premio.",
-      );
-    } finally {
-      setWonCardBusyId(null);
-    }
-  };
-
-  const withdrawWonCard = async (cardId: number) => {
-    if (!session) {
-      return;
-    }
-
-    if (!session.hasShippingAddress) {
-      const missing = session.shippingAddressMissing ?? [];
-      setWonCardsMessageTone("warning");
-      setWonCardsMessage(
-        missing.length
-          ? `Completa estos datos antes de retirar premios: ${missing.join(", ")}.`
-          : "Completa tu nombre y domicilio en Datos personales antes de retirar premios.",
-      );
-      setProfileSectionView("personal");
-      return;
-    }
-
-    setWonCardBusyId(cardId);
-    setWonCardsMessage("");
-
-    try {
-      const response = await apiFetch(
-        `/api/me/cards/${encodeURIComponent(cardId)}/withdraw`,
-        {
-          method: "POST",
-          headers: {
-            ...authHeader(session),
-          },
-        },
-      );
-      const payload = (await response.json()) as {
-        error?: string;
-        waitingForStock?: boolean;
-      };
-
-      if (!response.ok || payload.error) {
-        throw new Error(payload.error ?? "No se pudo retirar el premio.");
-      }
-
-      void loadWonCards();
-      if (payload.waitingForStock) {
-        setWonCardsMessageTone("warning");
-        setWonCardsMessage(
-          "No hay stock disponible en este momento. Tu retiro queda pendiente y te notificaremos cuando vuelva a haber stock.",
-        );
-      } else {
-        setWonCardsMessageTone("success");
-        setWonCardsMessage(
-          "Retiro confirmado. Pronto te enviaremos por mail el numero de seguimiento del envio.",
-        );
-      }
-    } catch (error) {
-      setWonCardsMessageTone("error");
-      setWonCardsMessage(
-        error instanceof Error ? error.message : "No se pudo retirar el premio.",
-      );
-    } finally {
-      setWonCardBusyId(null);
     }
   };
 

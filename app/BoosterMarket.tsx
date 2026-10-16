@@ -11,7 +11,6 @@ import {
   localImageUrl,
 } from "./market/card-display";
 import {
-  argentinaProvinces,
   cardGames,
   cardStatusLabels,
   gameLabels,
@@ -21,7 +20,6 @@ import {
   prizeItemTypes,
   prizeTypeLabels,
   prizeTypeShortLabels,
-  roleLabels,
 } from "./market/catalog";
 import { CardModal } from "./market/components/CardModal";
 import { SearchConsole } from "./market/components/SearchConsole";
@@ -37,6 +35,9 @@ import { NoticeToast } from "./market/layout/NoticeToast";
 import { SiteFooter } from "./market/layout/SiteFooter";
 import { MarketContext } from "./market/MarketContext";
 import { normalizedProbability, normalizeItems } from "./market/pack-math";
+import { ProfileSection } from "./market/profile/ProfileSection";
+import { WalletModal } from "./market/profile/WalletModal";
+import { WonCardsModal } from "./market/profile/WonCardsModal";
 import type { AppView, PackGame, ShopStockItem } from "./market/types";
 import { useMarketState } from "./market/useMarketState";
 import {
@@ -49,7 +50,6 @@ import {
   Dice5,
   Eye,
   Home,
-  Info,
   LogIn,
   PackageOpen,
   Pencil,
@@ -61,7 +61,6 @@ import {
   Settings,
   Sparkles,
   Trash2,
-  TriangleAlert,
   Trophy,
   Truck,
   User,
@@ -131,15 +130,12 @@ export function BoosterMarket({
     filteredUpgraderTargets,
     groupedShopOrders,
     idleRouletteItems,
-    inventoryActiveOnly,
-    inventoryPriceSort,
     loadAdminUserCards,
     loadAdminUsers,
     loadDbPacks,
     loadShopOrders,
     loadShopShipments,
     loadShopStock,
-    loadWonCards,
     manualSealedOpen,
     markSelectedOrdersShipped,
     markShipmentReceived,
@@ -148,30 +144,11 @@ export function BoosterMarket({
     openStockEditor,
     ordersMessage,
     ownedWonCards,
-    ownedWonCardsValue,
     packBuilderStock,
     packPrizeFilter,
     packStockGameFilter,
     playChanger,
     playUpgrader,
-    profileAddressReference,
-    profileApartment,
-    profileCity,
-    profileCountry,
-    profileDisplayName,
-    profileEmail,
-    profileFloor,
-    profileFullName,
-    profileMessage,
-    profilePassword,
-    profilePhone,
-    profilePostalCode,
-    profilePrizeView,
-    profileProvince,
-    profileSaving,
-    profileSectionView,
-    profileStreet,
-    profileStreetNumber,
     publicSearch,
     recentDrops,
     recentDropsLoading,
@@ -204,7 +181,6 @@ export function BoosterMarket({
     selectedTopItem,
     selectSealedSearchResult,
     sellerPacks,
-    sellWonCard,
     session,
     setAdminInventoryActiveOnly,
     setAdminInventoryMaxPrice,
@@ -223,27 +199,9 @@ export function BoosterMarket({
     setDraftPriceSort,
     setDraftSeries,
     setHomeAuthOpen,
-    setInventoryActiveOnly,
-    setInventoryPriceSort,
     setManualSealedOpen,
     setPackPrizeFilter,
     setPackStockGameFilter,
-    setProfileAddressReference,
-    setProfileApartment,
-    setProfileCity,
-    setProfileCountry,
-    setProfileDisplayName,
-    setProfileEmail,
-    setProfileFloor,
-    setProfileFullName,
-    setProfilePassword,
-    setProfilePhone,
-    setProfilePostalCode,
-    setProfilePrizeView,
-    setProfileProvince,
-    setProfileSectionView,
-    setProfileStreet,
-    setProfileStreetNumber,
     setPublicSearch,
     setSealedGame,
     setSealedImageUrl,
@@ -274,9 +232,6 @@ export function BoosterMarket({
     setUpgraderQuery,
     setUpgraderTargetId,
     setUpgraderTargetQuantity,
-    setWalletAmount,
-    setWalletOpen,
-    setWonCardsOpen,
     shipmentBusyKey,
     shipmentHistoryGroups,
     shipmentsMessage,
@@ -304,9 +259,7 @@ export function BoosterMarket({
     toggleChangerStake,
     toggleShipmentSelection,
     toggleUpgraderStake,
-    topUpWallet,
     updateDraftProbability,
-    updateProfile,
     updateStockQuantity,
     upgraderChance,
     upgraderGame,
@@ -328,22 +281,13 @@ export function BoosterMarket({
     upgraderTargetMaxQuantity,
     upgraderTargetQuantity,
     upgraderTargetValue,
-    userWithdrawalGroups,
     visibleAdminUserCards,
-    visibleInventoryCards,
     visibleRouletteItems,
     visibleRouletteOffset,
     visibleRoulettePhase,
     visibleRouletteResult,
     visibleRouletteRunId,
-    walletAmount,
-    walletMessage,
-    walletOpen,
-    walletSaving,
     withdrawnOrderCount,
-    withdrawWonCard,
-    wonCardBusyId,
-    wonCardsOpen,
   } = market;
 
   const openingSection = (
@@ -2799,555 +2743,6 @@ export function BoosterMarket({
     </section>
   );
 
-  const inventoryPanel = (
-    <section className="inventory-panel" aria-label="Inventario de premios">
-      <div className="panel-heading">
-        <div>
-          <span className="eyebrow">Inventario</span>
-          <h2>Tus premios</h2>
-        </div>
-        <button
-          className="secondary-action compact"
-          onClick={() => void loadWonCards()}
-          type="button"
-        >
-          <RotateCcw size={16} aria-hidden />
-          Refrescar
-        </button>
-      </div>
-      <div className="shipment-view-tabs profile-prize-tabs">
-        <button
-          className={profilePrizeView === "inventory" ? "active" : ""}
-          onClick={() => setProfilePrizeView("inventory")}
-          type="button"
-        >
-          <Boxes size={16} aria-hidden />
-          Inventario
-        </button>
-        <button
-          className={profilePrizeView === "shipments" ? "active" : ""}
-          onClick={() => setProfilePrizeView("shipments")}
-          type="button"
-        >
-          <Truck size={16} aria-hidden />
-          Retiros y envios
-        </button>
-      </div>
-      {!session?.hasShippingAddress && (
-        <div className="profile-address-alert" role="status">
-          <TriangleAlert size={20} aria-hidden />
-          <span>
-            <strong>Completa tu domicilio para retirar premios</strong>
-            <small>
-              Falta: {(
-                session?.shippingAddressMissing ?? ["datos obligatorios"]
-              ).join(", ")}.
-            </small>
-          </span>
-          <button
-            className="secondary-action compact"
-            onClick={() => setProfileSectionView("personal")}
-            type="button"
-          >
-            Completar datos
-          </button>
-        </div>
-      )}
-      {profilePrizeView === "inventory" ? (
-        <>
-          <div className="profile-inventory-value">
-            <small>Valor disponible</small>
-            <strong>{formatUsd.format(ownedWonCardsValue)}</strong>
-          </div>
-          <div className="inventory-toolbar">
-            <label className="switch-control">
-              <input
-                checked={inventoryActiveOnly}
-                onChange={(event) => setInventoryActiveOnly(event.target.checked)}
-                role="switch"
-                type="checkbox"
-              />
-              <span className="switch-track" aria-hidden>
-                <span />
-              </span>
-              <span>Solo activos</span>
-            </label>
-            <SortControl
-              ariaLabel="Ordenar inventario por precio"
-              onChange={(value) =>
-                setInventoryPriceSort(value as "price-desc" | "price-asc")
-              }
-              options={[
-                { value: "price-desc", label: "Mayor a menor" },
-                { value: "price-asc", label: "Menor a mayor" },
-              ]}
-              value={inventoryPriceSort}
-            />
-          </div>
-          <div className="inventory-list">
-            {visibleInventoryCards.length ? (
-              visibleInventoryCards.map((cardItem) => (
-                <article
-                  className={`inventory-card ${itemTypeOf(cardItem.card)}`}
-                  key={cardItem.id}
-                >
-                  <button
-                    className="won-card-image"
-                    onClick={() => showCardDetails(cardItem.card)}
-                    type="button"
-                  >
-                    <img
-                      src={cardImage(cardItem.card)}
-                      alt=""
-                      onError={handleImageError(cardItem.card.game)}
-                    />
-                  </button>
-                  <div>
-                    <div className="inventory-card-tags">
-                      <span className={`status-chip ${cardItem.status}`}>
-                        {cardStatusLabels[cardItem.status]}
-                      </span>
-                      <span className={`prize-type-chip ${itemTypeOf(cardItem.card)}`}>
-                        {prizeTypeLabels[itemTypeOf(cardItem.card)]}
-                      </span>
-                    </div>
-                    <strong>{cardItem.card.name}</strong>
-                    <small>
-                      {cardItem.packName} - {formatUsd.format(cardItem.valueUsd)}
-                    </small>
-                    <small>
-                      {cardItem.card.setName}
-                      {cardItem.card.number ? ` #${cardItem.card.number}` : ""}
-                    </small>
-                    <small>Ganada: {formatCardDate(cardItem.acquiredAt)}</small>
-                  </div>
-                  {(cardItem.status === "owned" ||
-                    cardItem.status === "waiting_stock") && (
-                    <div className="won-card-actions">
-                      <button
-                        className="sell-action"
-                        disabled={wonCardBusyId === cardItem.id}
-                        onClick={() => void sellWonCard(cardItem.id)}
-                        type="button"
-                      >
-                        Vender
-                      </button>
-                      <button
-                        className={
-                          cardItem.status === "waiting_stock"
-                            ? "retry-action"
-                            : "withdraw-action"
-                        }
-                        disabled={wonCardBusyId === cardItem.id}
-                        onClick={() => void withdrawWonCard(cardItem.id)}
-                        type="button"
-                      >
-                        {cardItem.status === "waiting_stock" ? (
-                          <RotateCcw size={16} aria-hidden />
-                        ) : (
-                          <Truck size={16} aria-hidden />
-                        )}
-                        {cardItem.status === "waiting_stock"
-                          ? "Reintentar retiro"
-                          : "Retirar"}
-                      </button>
-                    </div>
-                  )}
-                </article>
-              ))
-            ) : (
-              <p className="empty-list">
-                {inventoryActiveOnly
-                  ? "No tenes premios activos para vender o retirar."
-                  : "No hay premios en tu inventario."}
-              </p>
-            )}
-          </div>
-        </>
-      ) : (
-        <div className="shipment-group-list profile-shipment-list">
-          {userWithdrawalGroups.map((group) => (
-            <article className="shipment-group" key={group.key}>
-              <div className="shipment-group-heading">
-                <span className="order-user-avatar" aria-hidden>
-                  <Truck size={18} />
-                </span>
-                <div>
-                  <span className="eyebrow">
-                    {group.shipmentStatus === "delivered"
-                      ? "Recibido"
-                      : group.shipmentStatus === "shipped"
-                        ? "En camino"
-                        : "Preparando envio"}
-                  </span>
-                  <strong>
-                    {group.items.length === 1
-                      ? "1 premio en este paquete"
-                      : `${group.items.length} premios en este paquete`}
-                  </strong>
-                </div>
-                <div className="tracking-summary">
-                  <small>Numero de seguimiento</small>
-                  <strong>{group.trackingNumber || "Pendiente de asignar"}</strong>
-                </div>
-              </div>
-              <div className="shipment-prizes">
-                {group.items.map((item) => (
-                  <div className="shipment-prize" key={item.id}>
-                    <img
-                      src={cardImage(item.card)}
-                      alt=""
-                      onError={handleImageError(item.card.game)}
-                    />
-                    <span>
-                      <strong>{item.card.name}</strong>
-                      <small>{formatUsd.format(item.valueUsd)}</small>
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <div className="shipment-group-footer">
-                <span>
-                  <small>
-                    {group.shipmentStatus === "delivered"
-                      ? "Recibido"
-                      : group.shipmentStatus === "shipped"
-                        ? "Enviado"
-                        : "Retiro solicitado"}
-                  </small>
-                  <strong>
-                    {formatCardDate(
-                      group.deliveredAt ??
-                        group.shippedAt ??
-                        group.items[0]?.acquiredAt,
-                    )}
-                  </strong>
-                </span>
-                <strong>
-                  {formatUsd.format(
-                    group.items.reduce(
-                      (total, item) => total + item.valueUsd,
-                      0,
-                    ),
-                  )}
-                </strong>
-              </div>
-            </article>
-          ))}
-          {!userWithdrawalGroups.length && (
-            <p className="empty-list">Todavia no tenes retiros confirmados.</p>
-          )}
-        </div>
-      )}
-    </section>
-  );
-
-  const profileSection = (
-    <section className="admin-band page-section" aria-label="Perfil de usuario">
-      <div className="admin-intro">
-        <span className="eyebrow">Perfil</span>
-        <h1>Cuenta local</h1>
-        <p>Modifica los datos del usuario que esta usando Pullario en esta PC.</p>
-      </div>
-
-      {session ? (
-        <>
-          <nav className="profile-section-nav" aria-label="Secciones del perfil">
-            <button
-              className={profileSectionView === "personal" ? "active" : ""}
-              onClick={() => setProfileSectionView("personal")}
-              type="button"
-            >
-              <User size={17} aria-hidden />
-              Datos personales
-            </button>
-            <button
-              className={profileSectionView === "inventory" ? "active" : ""}
-              onClick={() => setProfileSectionView("inventory")}
-              type="button"
-            >
-              <Boxes size={17} aria-hidden />
-              Inventario
-            </button>
-          </nav>
-
-          {profileSectionView === "personal" ? (
-            <div className="profile-personal-layout">
-              <aside className="profile-account-summary">
-                <span className="db-status online">
-                  <User size={16} aria-hidden />
-                  {roleLabels[session.role]}
-                </span>
-                <strong>{session.username}</strong>
-                <small>
-                  Balance demo {formatUsd.format(session.balanceUsd ?? 0)}
-                </small>
-                <div
-                  className={`address-status ${
-                    session.hasShippingAddress ? "complete" : "incomplete"
-                  }`}
-                >
-                  {session.hasShippingAddress ? (
-                    <CircleCheck size={18} aria-hidden />
-                  ) : (
-                    <TriangleAlert size={18} aria-hidden />
-                  )}
-                  <span>
-                    <strong>
-                      {session.hasShippingAddress
-                        ? "Domicilio completo"
-                        : "Falta completar el domicilio"}
-                    </strong>
-                    <small>
-                      {session.hasShippingAddress
-                        ? "Ya podes solicitar retiros fisicos."
-                        : `Falta: ${(
-                            session.shippingAddressMissing ?? ["datos obligatorios"]
-                          ).join(", ")}.`}
-                    </small>
-                  </span>
-                </div>
-              </aside>
-
-              <form
-                className="profile-details-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void updateProfile();
-                }}
-              >
-                <section className="profile-form-section">
-                  <div className="profile-form-heading">
-                    <span className="eyebrow">Cuenta y contacto</span>
-                    <h2>Informacion personal</h2>
-                  </div>
-                  <div className="profile-form-grid">
-                    <label>
-                      Nombre visible
-                      <input
-                        onChange={(event) =>
-                          setProfileDisplayName(event.target.value)
-                        }
-                        value={profileDisplayName}
-                      />
-                    </label>
-                    <label>
-                      <span className="field-label">
-                        Nombre y apellido
-                        <span className="required-mark" aria-hidden>*</span>
-                      </span>
-                      <input
-                        autoComplete="name"
-                        onChange={(event) => setProfileFullName(event.target.value)}
-                        placeholder="Nombre del destinatario"
-                        required
-                        value={profileFullName}
-                      />
-                    </label>
-                    <label>
-                      Email
-                      <input
-                        autoComplete="email"
-                        onChange={(event) => setProfileEmail(event.target.value)}
-                        type="email"
-                        value={profileEmail}
-                      />
-                    </label>
-                    <label>
-                      Telefono
-                      <input
-                        autoComplete="tel"
-                        onChange={(event) => setProfilePhone(event.target.value)}
-                        placeholder="Ej: +54 11 5555 5555"
-                        type="tel"
-                        value={profilePhone}
-                      />
-                    </label>
-                  </div>
-                </section>
-
-                <section className="profile-form-section">
-                  <div className="profile-form-heading">
-                    <span className="eyebrow">Entrega</span>
-                    <h2>Domicilio</h2>
-                    <p>Usaremos esta direccion para enviar tus premios retirados.</p>
-                    <div className="shipping-country-notice">
-                      <Info size={17} aria-hidden />
-                      Por el momento realizamos envios unicamente dentro de Argentina.
-                    </div>
-                  </div>
-                  <div className="profile-form-grid address-grid">
-                    <label>
-                      <span className="field-label">
-                        Pais
-                        <span className="required-mark" aria-hidden>*</span>
-                      </span>
-                      <select
-                        autoComplete="country-name"
-                        onChange={(event) => setProfileCountry(event.target.value)}
-                        required
-                        value={profileCountry}
-                      >
-                        <option value="Argentina">Argentina</option>
-                        <option disabled value="proximamente">
-                          Otros paises proximamente
-                        </option>
-                      </select>
-                    </label>
-                    <label>
-                      <span className="field-label">
-                        Provincia
-                        <span className="required-mark" aria-hidden>*</span>
-                      </span>
-                      <select
-                        autoComplete="address-level1"
-                        onChange={(event) =>
-                          setProfileProvince(event.target.value)
-                        }
-                        required
-                        value={profileProvince}
-                      >
-                        <option value="">Seleccionar provincia</option>
-                        {argentinaProvinces.map((province) => (
-                          <option key={province} value={province}>
-                            {province}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      <span className="field-label">
-                        Ciudad
-                        <span className="required-mark" aria-hidden>*</span>
-                      </span>
-                      <input
-                        autoComplete="address-level2"
-                        onChange={(event) => setProfileCity(event.target.value)}
-                        required
-                        value={profileCity}
-                      />
-                    </label>
-                    <label>
-                      <span className="field-label">
-                        Calle
-                        <span className="required-mark" aria-hidden>*</span>
-                      </span>
-                      <input
-                        autoComplete="address-line1"
-                        onChange={(event) => setProfileStreet(event.target.value)}
-                        placeholder="Ej: Av. Corrientes"
-                        required
-                        value={profileStreet}
-                      />
-                    </label>
-                    <label>
-                      <span className="field-label">
-                        Numero
-                        <span className="required-mark" aria-hidden>*</span>
-                      </span>
-                      <input
-                        onChange={(event) =>
-                          setProfileStreetNumber(event.target.value)
-                        }
-                        placeholder="Ej: 1234"
-                        required
-                        value={profileStreetNumber}
-                      />
-                    </label>
-                    <label>
-                      Piso
-                      <input
-                        onChange={(event) => setProfileFloor(event.target.value)}
-                        placeholder="Ej: 4"
-                        value={profileFloor}
-                      />
-                    </label>
-                    <label>
-                      Departamento
-                      <input
-                        onChange={(event) =>
-                          setProfileApartment(event.target.value)
-                        }
-                        placeholder="Ej: B"
-                        value={profileApartment}
-                      />
-                    </label>
-                    <label>
-                      <span className="field-label">
-                        Codigo postal
-                        <span className="required-mark" aria-hidden>*</span>
-                      </span>
-                      <input
-                        autoComplete="postal-code"
-                        onChange={(event) =>
-                          setProfilePostalCode(event.target.value)
-                        }
-                        required
-                        value={profilePostalCode}
-                      />
-                    </label>
-                    <label className="wide-field">
-                      Referencia
-                      <input
-                        onChange={(event) =>
-                          setProfileAddressReference(event.target.value)
-                        }
-                        placeholder="Ej: Porton negro, timbre 2"
-                        value={profileAddressReference}
-                      />
-                    </label>
-                  </div>
-                </section>
-
-                <section className="profile-form-section security-section">
-                  <div className="profile-form-heading">
-                    <span className="eyebrow">Seguridad</span>
-                    <h2>Cambiar contraseña</h2>
-                  </div>
-                  <label>
-                    Nueva contraseña
-                    <input
-                      autoComplete="new-password"
-                      onChange={(event) => setProfilePassword(event.target.value)}
-                      placeholder="Dejar vacio para no cambiar"
-                      type="password"
-                      value={profilePassword}
-                    />
-                  </label>
-                </section>
-
-                <div className="profile-form-actions">
-                  {profileMessage && (
-                    <p className="admin-message">{profileMessage}</p>
-                  )}
-                  <button
-                    className="primary-action compact"
-                    disabled={profileSaving}
-                    type="submit"
-                  >
-                    <Save size={17} aria-hidden />
-                    {profileSaving ? "Guardando" : "Guardar datos"}
-                  </button>
-                </div>
-              </form>
-            </div>
-          ) : (
-            <div className="profile-inventory-view">{inventoryPanel}</div>
-          )}
-        </>
-      ) : (
-        <div className="login-panel">
-          <span className="eyebrow">Sesion requerida</span>
-          <h3>Entrar desde la pagina principal</h3>
-          <Link className="primary-action compact" href="/">
-            <LogIn size={17} aria-hidden />
-            Ir al login
-          </Link>
-        </div>
-      )}
-    </section>
-  );
-
   const pageTransitionKey = [view, initialPackId ?? ""].join(":");
 
   return (
@@ -3376,7 +2771,7 @@ export function BoosterMarket({
         {view === "upgrader" && upgraderSection}
         {view === "changer" && changerSection}
         {view.startsWith("admin") && adminSection}
-        {view === "profile" && profileSection}
+        {view === "profile" && <ProfileSection />}
         <SiteFooter />
       </div>
 
@@ -3550,182 +2945,9 @@ export function BoosterMarket({
         </div>
       )}
 
-      {walletOpen && (
-        <div
-          className="modal-backdrop"
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              setWalletOpen(false);
-            }
-          }}
-          role="presentation"
-        >
-          <article
-            aria-labelledby="wallet-modal-title"
-            aria-modal="true"
-            className="utility-modal"
-            role="dialog"
-          >
-            <button
-              aria-label="Cerrar cartera"
-              className="modal-close"
-              onClick={() => setWalletOpen(false)}
-              type="button"
-            >
-              <X size={18} aria-hidden />
-            </button>
-            <span className="eyebrow">Cartera</span>
-            <h2 id="wallet-modal-title">
-              {formatUsd.format(session?.balanceUsd ?? 0)}
-            </h2>
-            <p>
-              Recarga saldo demo local para probar aperturas y compras sin pagos
-              reales.
-            </p>
-            <label>
-              Monto USD
-              <input
-                inputMode="decimal"
-                onChange={(event) => setWalletAmount(event.target.value)}
-                placeholder="Ej: 10"
-                type="text"
-                value={walletAmount}
-              />
-            </label>
-            <button
-              className="primary-action compact"
-              disabled={
-                walletSaving ||
-                !Number.isFinite(Number(walletAmount)) ||
-                Number(walletAmount) <= 0
-              }
-              onClick={() => void topUpWallet()}
-              type="button"
-            >
-              <Wallet size={17} aria-hidden />
-              {walletSaving ? "Recargando" : "Recargar dinero"}
-            </button>
-            {walletMessage && <p className="admin-message">{walletMessage}</p>}
-          </article>
-        </div>
-      )}
+      <WalletModal />
 
-      {wonCardsOpen && (
-        <div
-          className="modal-backdrop"
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              setWonCardsOpen(false);
-            }
-          }}
-          role="presentation"
-        >
-          <article
-            aria-labelledby="won-cards-modal-title"
-            aria-modal="true"
-            className="utility-modal won-cards-modal"
-            role="dialog"
-          >
-            <button
-              aria-label="Cerrar premios ganados"
-              className="modal-close"
-              onClick={() => setWonCardsOpen(false)}
-              type="button"
-            >
-              <X size={18} aria-hidden />
-            </button>
-            <div className="panel-heading">
-              <div>
-                <span className="eyebrow">Premios ganados</span>
-                <h2 id="won-cards-modal-title">
-                  {formatUsd.format(ownedWonCardsValue)}
-                </h2>
-              </div>
-            </div>
-            <div className="won-card-list">
-              {ownedWonCards.length ? (
-                ownedWonCards.map((cardItem) => (
-                  <article
-                    className={`won-card ${itemTypeOf(cardItem.card)}`}
-                    key={cardItem.id}
-                  >
-                    <button
-                      className="won-card-image"
-                      onClick={() => showCardDetails(cardItem.card)}
-                      type="button"
-                    >
-                      <img
-                        src={cardImage(cardItem.card)}
-                        alt=""
-                        onError={handleImageError(cardItem.card.game)}
-                      />
-                    </button>
-                    <div>
-                      <div className="inventory-card-tags">
-                        {cardItem.status === "waiting_stock" && (
-                          <span className="status-chip waiting_stock">
-                            {cardStatusLabels.waiting_stock}
-                          </span>
-                        )}
-                        <span
-                          className={`prize-type-chip ${itemTypeOf(cardItem.card)}`}
-                        >
-                          {prizeTypeLabels[itemTypeOf(cardItem.card)]}
-                        </span>
-                      </div>
-                      <strong>{cardItem.card.name}</strong>
-                      <small>
-                        {cardItem.packName} -{" "}
-                        {formatUsd.format(cardItem.valueUsd)}
-                      </small>
-                      <span className="card-meta">
-                        {cardItem.card.setName}
-                        {cardItem.card.number
-                          ? ` #${cardItem.card.number}`
-                          : ""}
-                      </span>
-                    </div>
-                    <div className="won-card-actions">
-                      <button
-                        className="sell-action"
-                        disabled={wonCardBusyId === cardItem.id}
-                        onClick={() => void sellWonCard(cardItem.id)}
-                        type="button"
-                      >
-                        Vender
-                      </button>
-                      <button
-                        className={
-                          cardItem.status === "waiting_stock"
-                            ? "retry-action"
-                            : "withdraw-action"
-                        }
-                        disabled={wonCardBusyId === cardItem.id}
-                        onClick={() => void withdrawWonCard(cardItem.id)}
-                        type="button"
-                      >
-                        {cardItem.status === "waiting_stock" ? (
-                          <RotateCcw size={16} aria-hidden />
-                        ) : (
-                          <Truck size={16} aria-hidden />
-                        )}
-                        {cardItem.status === "waiting_stock"
-                          ? "Reintentar retiro"
-                          : "Retirar"}
-                      </button>
-                    </div>
-                  </article>
-                ))
-              ) : (
-                <p className="empty-list">
-                  No tenes premios disponibles para vender o retirar. El
-                  historial completo queda en tu perfil.
-                </p>
-              )}
-            </div>
-          </article>
-        </div>
-      )}
+      <WonCardsModal />
 
       <NoticeToast />
 

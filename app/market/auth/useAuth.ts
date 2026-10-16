@@ -12,7 +12,7 @@ import type { NoticeState } from "../layout/useNotice";
 import type { ProfileFormState } from "../profile/useProfileForm";
 import type { ApiStatus, LoginResponse, SessionAuth } from "../types";
 
-type AuthDeps = 
+type AuthDeps =
   Pick<CatalogState, "loadDbPacks" | "setApiStatus"> &
   Pick<NoticeState, "setWonCardsMessage" | "setWonCardsMessageTone"> &
   Pick<
