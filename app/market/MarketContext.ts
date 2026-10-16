@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { MarketState } from "./hooks/useMarketState";
+import type { MarketState } from "./useMarketState";
 
 export const MarketContext = createContext<MarketState | null>(null);
 

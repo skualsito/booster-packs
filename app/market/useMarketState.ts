@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type {
-  CardGame,
-  ExternalCard,
-  PrizeItemType,
-} from "../../lib/card-search";
+import type { CardGame, ExternalCard, PrizeItemType } from "../lib/card-search";
 import {
   apiFetch,
   authHeader,
@@ -11,7 +7,7 @@ import {
   clearStoredSession,
   readStoredSession,
   saveStoredSession,
-} from "../api";
+} from "./api";
 import {
   cardGames,
   gameAccents,
@@ -20,21 +16,21 @@ import {
   newSearchState,
   prizeItemTypes,
   prizeTypeLabels,
-} from "../catalog";
+} from "./catalog";
 import {
   HIT_PROBABILITY_THRESHOLD,
   ROULETTE_STRIDE,
   safeUpgraderLandingPercent,
-} from "../constants";
-import { demoPacks } from "../demo-packs";
-import { formatUsd } from "../format";
+} from "./constants";
+import { demoPacks } from "./demo-packs";
+import { formatUsd } from "./format";
+import { useCatalog } from "./home/useCatalog";
 import {
   normalizedProbability,
   normalizeItems,
   packExpectedValue,
-  topItem,
   weightedPick,
-} from "../pack-math";
+} from "./pack-math";
 import type {
   AdminUserCardsResponse,
   AdminUsersResponse,
@@ -48,7 +44,6 @@ import type {
   OpenPackResponse,
   PackGame,
   PackItem,
-  PacksResponse,
   RecentDrop,
   RecentDropsResponse,
   RouletteState,
@@ -68,14 +63,26 @@ import type {
   UserCardItem,
   UserCardsResponse,
   WalletResponse,
-} from "../types";
+} from "./types";
 
 export function useMarketState({ initialPackId, view }: MarketProps) {
-  const [selectedPackId, setSelectedPackId] = useState(
-    initialPackId ?? demoPacks[0].id,
-  );
-  const [savedPacks, setSavedPacks] = useState<BoosterPack[]>([]);
-  const [apiStatus, setApiStatus] = useState<ApiStatus>("checking");
+  const catalog = useCatalog({ initialPackId, view });
+  const {
+    activePackId,
+    apiStatus,
+    heroShowcaseItems,
+    loadDbPacks,
+    packs,
+    savedPacks,
+    selectedPack,
+    selectedPackExists,
+    selectedPackId,
+    selectedTopItem,
+    setApiStatus,
+    setSavedPacks,
+    setSelectedPackId,
+  } = catalog;
+
   const [session, setSession] = useState<SessionAuth | null>(null);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [loginUsername, setLoginUsername] = useState("");
@@ -322,26 +329,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
         setProfileCountry(refreshedSession.country?.trim() || "Argentina");
       })
       .catch(() => undefined);
-  }, []);
-
-  const loadDbPacks = useCallback(async () => {
-    setApiStatus("checking");
-
-    try {
-      const response = await apiFetch("/api/packs");
-      const payload = (await response.json()) as PacksResponse;
-
-      if (!response.ok || payload.error) {
-        throw new Error(payload.error ?? "No se pudieron cargar las cajas.");
-      }
-
-      setSavedPacks(payload.packs ?? []);
-      setApiStatus("online");
-      return payload.packs ?? [];
-    } catch {
-      setApiStatus("offline");
-      return [];
-    }
   }, []);
 
   const loadWonCards = useCallback(async () => {
@@ -752,14 +739,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void loadDbPacks();
-    }, 0);
-
-    return () => window.clearTimeout(timer);
-  }, [loadDbPacks]);
-
-  useEffect(() => {
     if (!session) {
       return;
     }
@@ -876,19 +855,7 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
       }
     };
   }, []);
-
-  const packs = useMemo(
-    () => (savedPacks.length ? savedPacks : demoPacks),
-    [savedPacks],
-  );
   const sellerPacks = isSellerRole(session?.role) ? savedPacks : [];
-  const activePackId = view === "pack" && initialPackId ? initialPackId : selectedPackId;
-  const selectedPackExists = packs.some((pack) => pack.id === activePackId);
-  const selectedPack = packs.find((pack) => pack.id === activePackId) ?? packs[0];
-  const selectedTopItem = topItem(selectedPack);
-  const heroShowcaseItems = [...selectedPack.items]
-    .sort((a, b) => (b.card.priceUsd ?? 0) - (a.card.priceUsd ?? 0))
-    .slice(0, 4);
   const rouletteBelongsToSelectedPack = roulette.packId === selectedPack.id;
   const visibleRouletteItems = rouletteBelongsToSelectedPack ? roulette.items : [];
   const visibleRouletteOffset = rouletteBelongsToSelectedPack ? roulette.offset : 0;
