@@ -86,13 +86,15 @@ export function useChanger(deps: ChangerDeps) {
     return () => window.clearTimeout(timer);
   }, [loadChangerOptions, session, view]);
 
-  useEffect(() => {
-    // Pre-existing reset-on-change effect, kept as is by the refactor.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+  // Reset the board when the logged-in user changes (adjusting state during
+  // render instead of in an effect).
+  const [changerSessionId, setChangerSessionId] = useState(session?.id);
+  if (changerSessionId !== session?.id) {
+    setChangerSessionId(session?.id);
     setChangerStakeIds([]);
     setChangerTargetQuantities({});
     setChangerOutcome(null);
-  }, [session?.id]);
+  }
   const changerStakeCards = ownedWonCards.filter((item) =>
     changerStakeIds.includes(item.id),
   );

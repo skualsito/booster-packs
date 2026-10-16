@@ -8,7 +8,11 @@ import { isSellerRole } from "../catalog";
 import { HIT_PROBABILITY_THRESHOLD, ROULETTE_STRIDE } from "../constants";
 import type { CatalogState } from "../home/useCatalog";
 import type { NoticeState } from "../layout/useNotice";
-import { normalizedProbability, weightedPick } from "../pack-math";
+import {
+  buildRouletteStrip,
+  normalizedProbability,
+  weightedPick,
+} from "../pack-math";
 import type { InventoryState } from "../profile/useInventory";
 import type {
   MarketProps,
@@ -115,11 +119,13 @@ export function usePackOpening(deps: PackOpeningDeps) {
   const visibleRouletteRunId = rouletteBelongsToSelectedPack
     ? roulette.runId
     : 0;
+  // Demo packs have no stored drops, so clear the list while one is selected
+  // (adjusting state during render instead of in an effect).
+  if (selectedPack.createdBy === "demo" && recentDrops.length > 0) {
+    setRecentDrops([]);
+  }
   useEffect(() => {
     if (selectedPack.createdBy === "demo") {
-      // Pre-existing reset-on-change effect, kept as is by the refactor.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setRecentDrops([]);
       return;
     }
 
@@ -164,8 +170,6 @@ export function usePackOpening(deps: PackOpeningDeps) {
     }));
   }, [selectedPack]);
 
-  // Only runs from openPack (a click handler), so the impure calls below
-  // never run during render.
   const spinWithWinner = (winner: PackItem, onDone?: () => void) => {
     spinTimers.current.forEach((timer) => window.clearTimeout(timer));
     spinTimers.current = [];
@@ -176,41 +180,8 @@ export function usePackOpening(deps: PackOpeningDeps) {
     setCelebratingRunId(null);
 
     const targetIndex = 32;
-    // eslint-disable-next-line react-hooks/purity
-    const runId = Date.now();
     const targetOffset = targetIndex * ROULETTE_STRIDE;
-    const strip = Array.from({ length: 42 }, (_, index) => ({
-      ...weightedPick(selectedPack.items),
-      spinKey: `${runId}-${index}-${crypto.randomUUID()}`,
-    }));
-    const showcaseHitCandidates = selectedPack.items.filter(
-      (item) =>
-        item.slotId !== winner.slotId &&
-        normalizedProbability(item, selectedPack) < HIT_PROBABILITY_THRESHOLD,
-    );
-    const showcaseHit = showcaseHitCandidates.length
-      ? showcaseHitCandidates[
-          // eslint-disable-next-line react-hooks/purity
-          Math.floor(Math.random() * showcaseHitCandidates.length)
-        ]
-      : undefined;
-
-    if (showcaseHit) {
-      const showcaseOffsets = [-4, -3, -2, 2, 3, 4];
-      const showcaseOffset =
-        // eslint-disable-next-line react-hooks/purity
-        showcaseOffsets[Math.floor(Math.random() * showcaseOffsets.length)];
-      const showcaseIndex = targetIndex + showcaseOffset;
-      strip[showcaseIndex] = {
-        ...showcaseHit,
-        spinKey: `${runId}-showcase-hit-${crypto.randomUUID()}`,
-      };
-    }
-
-    strip[targetIndex] = {
-      ...winner,
-      spinKey: `${runId}-winner-${crypto.randomUUID()}`,
-    };
+    const { runId, strip } = buildRouletteStrip(selectedPack, winner, targetIndex);
 
     setRoulette({
       packId: selectedPack.id,

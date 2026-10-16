@@ -161,27 +161,35 @@ export function useUpgrader(deps: UpgraderDeps) {
       ? Math.max(0, parsedUpgraderMaxPrice)
       : Number.POSITIVE_INFINITY;
 
-  useEffect(() => {
-    // Pre-existing reset-on-change effect, kept as is by the refactor.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+  // The two blocks below adjust state during render instead of in an effect.
+  // A new target starts back at quantity 1.
+  const [quantityTargetId, setQuantityTargetId] = useState(upgraderTargetId);
+  if (quantityTargetId !== upgraderTargetId) {
+    setQuantityTargetId(upgraderTargetId);
     setUpgraderTargetQuantity(1);
-  }, [upgraderTargetId]);
+  }
 
-  useEffect(() => {
-    if (upgraderPreset === null) {
-      return;
+  // While a preset is active, the minimum price follows the stake value and
+  // the target is cleared whenever the preset or the stake changes.
+  const [presetBasis, setPresetBasis] = useState({
+    preset: upgraderPreset,
+    stakeValue: upgraderStakeValue,
+  });
+  if (
+    presetBasis.preset !== upgraderPreset ||
+    presetBasis.stakeValue !== upgraderStakeValue
+  ) {
+    setPresetBasis({ preset: upgraderPreset, stakeValue: upgraderStakeValue });
+    if (upgraderPreset !== null) {
+      setUpgraderMinPrice(
+        upgraderStakeValue > 0
+          ? String(Number((upgraderStakeValue * upgraderPreset).toFixed(2)))
+          : "",
+      );
+      setUpgraderMaxPrice("");
+      setUpgraderTargetId(null);
     }
-
-    // Pre-existing reset-on-change effect, kept as is by the refactor.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setUpgraderMinPrice(
-      upgraderStakeValue > 0
-        ? String(Number((upgraderStakeValue * upgraderPreset).toFixed(2)))
-        : "",
-    );
-    setUpgraderMaxPrice("");
-    setUpgraderTargetId(null);
-  }, [upgraderPreset, upgraderStakeValue]);
+  }
 
   const filteredUpgraderTargets = upgraderTargets.filter((item) => {
     const price = Number(item.card.priceUsd ?? 0);
@@ -288,10 +296,12 @@ export function useUpgrader(deps: UpgraderDeps) {
         throw new Error(payload.error ?? "No se pudo completar el Upgrader.");
       }
 
+      // Keep the narrowed boolean: the setTimeout callback below loses it.
+      const won = payload.won;
       const landingPercent = safeUpgraderLandingPercent(
         payload.roll,
         payload.chance ?? upgraderChance,
-        payload.won,
+        won,
       );
       const targetAngle = landingPercent * 3.6;
       setUpgraderRotation((current) => {
@@ -313,13 +323,13 @@ export function useUpgrader(deps: UpgraderDeps) {
         setUpgraderPreset(null);
         setUpgraderMinPrice("");
         setUpgraderMaxPrice("");
-        setWonCardsMessageTone(payload.won ? "success" : "warning");
+        setWonCardsMessageTone(won ? "success" : "warning");
         setWonCardsMessage(
-          payload.won
+          won
             ? "¡Upgrade conseguido! El premio ya está en tu inventario."
             : "El upgrade no salió esta vez.",
         );
-        playUpgraderResultSound(payload.won);
+        playUpgraderResultSound(won);
         void loadWonCards();
         void loadUpgraderOptions();
         upgraderTimerRef.current = null;

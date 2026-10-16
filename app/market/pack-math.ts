@@ -1,4 +1,5 @@
-import type { BoosterPack, PackItem } from "./types";
+import { HIT_PROBABILITY_THRESHOLD } from "./constants";
+import type { BoosterPack, PackItem, RouletteCard } from "./types";
 
 export const packProbabilityTotal = (pack: Pick<BoosterPack, "items">) =>
   pack.items.reduce((total, item) => total + Math.max(0, item.probability), 0);
@@ -57,6 +58,49 @@ export const weightedPick = (items: PackItem[]) => {
   }
 
   return items[items.length - 1];
+};
+
+// Builds a fresh roulette strip for one spin: weighted filler, an optional
+// rare "showcase" hit near the target, and the winner at targetIndex.
+// Impure on purpose (time and randomness), so only call it from handlers.
+export const buildRouletteStrip = (
+  pack: Pick<BoosterPack, "items">,
+  winner: PackItem,
+  targetIndex: number,
+) => {
+  const runId = Date.now();
+  const strip: RouletteCard[] = Array.from({ length: 42 }, (_, index) => ({
+    ...weightedPick(pack.items),
+    spinKey: `${runId}-${index}-${crypto.randomUUID()}`,
+  }));
+  const showcaseHitCandidates = pack.items.filter(
+    (item) =>
+      item.slotId !== winner.slotId &&
+      normalizedProbability(item, pack) < HIT_PROBABILITY_THRESHOLD,
+  );
+  const showcaseHit = showcaseHitCandidates.length
+    ? showcaseHitCandidates[
+        Math.floor(Math.random() * showcaseHitCandidates.length)
+      ]
+    : undefined;
+
+  if (showcaseHit) {
+    const showcaseOffsets = [-4, -3, -2, 2, 3, 4];
+    const showcaseOffset =
+      showcaseOffsets[Math.floor(Math.random() * showcaseOffsets.length)];
+    const showcaseIndex = targetIndex + showcaseOffset;
+    strip[showcaseIndex] = {
+      ...showcaseHit,
+      spinKey: `${runId}-showcase-hit-${crypto.randomUUID()}`,
+    };
+  }
+
+  strip[targetIndex] = {
+    ...winner,
+    spinKey: `${runId}-winner-${crypto.randomUUID()}`,
+  };
+
+  return { runId, strip };
 };
 
 export const roundProbabilities = (probabilities: number[]) => {

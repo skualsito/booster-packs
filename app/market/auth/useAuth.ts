@@ -80,7 +80,10 @@ export function useAuth(deps: AuthDeps) {
 
     saveStoredSession(storedSession);
     clearLegacyStoredSession();
-    // The session lives in localStorage, so it can only be restored after hydration.
+    // The session lives in localStorage, so it can only be restored after hydration:
+    // reading it in a useState initializer would make the first client render
+    // differ from the server HTML. Restoring it here is syncing from an external
+    // system, which is what effects are for.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSession(storedSession);
     fillProfileForm(storedSession);
