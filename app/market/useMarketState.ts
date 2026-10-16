@@ -12,9 +12,9 @@ import {
   prizeItemTypes,
   prizeTypeLabels,
 } from "./catalog";
+import { useChanger } from "./changer/useChanger";
 import { HIT_PROBABILITY_THRESHOLD, ROULETTE_STRIDE } from "./constants";
 import { demoPacks } from "./demo-packs";
-import { formatUsd } from "./format";
 import { useCatalog } from "./home/useCatalog";
 import { useNotice } from "./layout/useNotice";
 import {
@@ -32,7 +32,6 @@ import type {
   AdminUserSummary,
   ApiStatus,
   BoosterPack,
-  ChangerPlayResponse,
   DeliverShipmentResponse,
   MarketProps,
   OpenPackResponse,
@@ -48,7 +47,6 @@ import type {
   ShopShipmentsResponse,
   ShopStockItem,
   ShopStockResponse,
-  UpgraderOptionsResponse,
   UserCardItem,
 } from "./types";
 import { useUpgrader } from "./upgrader/useUpgrader";
@@ -281,16 +279,50 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     upgraderTickFrameRef,
     upgraderTimerRef,
   } = upgrader;
+  const changer = useChanger({
+    loadWonCards,
+    ownedWonCards,
+    session,
+    setAuthMode,
+    setHomeAuthOpen,
+    setWonCards,
+    setWonCardsMessage,
+    setWonCardsMessageTone,
+    updateSessionUser,
+    view,
+  });
+  const {
+    addChangerTarget,
+    changerGame,
+    changerLoading,
+    changerOutcome,
+    changerQuery,
+    changerRefund,
+    changerSaving,
+    changerSelectedTargets,
+    changerStakeCards,
+    changerStakeIds,
+    changerStakeValue,
+    changerTargetQuantities,
+    changerTargets,
+    changerTargetUnits,
+    changerTargetValue,
+    filteredChangerTargets,
+    loadChangerOptions,
+    playChanger,
+    removeChangerTarget,
+    setChangerGame,
+    setChangerLoading,
+    setChangerOutcome,
+    setChangerQuery,
+    setChangerSaving,
+    setChangerStakeIds,
+    setChangerTargetQuantities,
+    setChangerTargets,
+    toggleChangerStake,
+  } = changer;
   const [adminMessage, setAdminMessage] = useState("");
   const [adminSaving, setAdminSaving] = useState(false);
-  const [changerTargets, setChangerTargets] = useState<ShopStockItem[]>([]);
-  const [changerStakeIds, setChangerStakeIds] = useState<number[]>([]);
-  const [changerTargetQuantities, setChangerTargetQuantities] = useState<Record<number, number>>({});
-  const [changerQuery, setChangerQuery] = useState("");
-  const [changerGame, setChangerGame] = useState<PackGame>("mixed");
-  const [changerLoading, setChangerLoading] = useState(false);
-  const [changerSaving, setChangerSaving] = useState(false);
-  const [changerOutcome, setChangerOutcome] = useState<ChangerPlayResponse | null>(null);
   const [shopStock, setShopStock] = useState<ShopStockItem[]>([]);
   const [stockMessage, setStockMessage] = useState("");
   const [stockBusyId, setStockBusyId] = useState<number | null>(null);
@@ -378,39 +410,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
   const spinTimers = useRef<number[]>([]);
   const rouletteTrackRef = useRef<HTMLDivElement | null>(null);
   const rouletteTickFrameRef = useRef<number | null>(null);
-
-  const loadChangerOptions = useCallback(async () => {
-    setChangerLoading(true);
-    try {
-      const response = await apiFetch("/api/changer", {
-        headers: session
-          ? { ...authHeader(session) }
-          : undefined,
-      });
-      const payload = (await response.json()) as UpgraderOptionsResponse;
-
-      if (!response.ok || payload.error) {
-        throw new Error(payload.error ?? "No se pudo cargar el Changer.");
-      }
-
-      if (session) {
-        setWonCards((current) => {
-          const history = current.filter(
-            (item) => item.status !== "owned" && item.status !== "waiting_stock",
-          );
-          return [...(payload.inventory ?? []), ...history];
-        });
-      }
-      setChangerTargets(payload.targets ?? []);
-    } catch (error) {
-      setWonCardsMessageTone("error");
-      setWonCardsMessage(
-        error instanceof Error ? error.message : "No se pudo cargar el Changer.",
-      );
-    } finally {
-      setChangerLoading(false);
-    }
-  }, [session, setWonCardsMessage, setWonCardsMessageTone, setWonCards]);
 
   const loadShopStock = useCallback(async () => {
     if (!session || !isSellerRole(session.role)) {
@@ -726,20 +725,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
   }, []);
 
   useEffect(() => {
-    if (view !== "changer") return;
-    const timer = window.setTimeout(() => void loadChangerOptions(), 0);
-    return () => window.clearTimeout(timer);
-  }, [loadChangerOptions, session, view]);
-
-  useEffect(() => {
-    // Pre-existing reset-on-change effect, kept as is by the refactor.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setChangerStakeIds([]);
-    setChangerTargetQuantities({});
-    setChangerOutcome(null);
-  }, [session?.id]);
-
-  useEffect(() => {
     if (!isSellerRole(session?.role)) {
       return;
     }
@@ -868,45 +853,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
   );
   const draftExpectedValue = packExpectedValue({ items: draftItems });
   const draftMargin = draftPrice - draftExpectedValue;
-  const changerStakeCards = ownedWonCards.filter((item) =>
-    changerStakeIds.includes(item.id),
-  );
-  const changerStakeValue = Number(
-    changerStakeCards
-      .reduce((total, item) => total + Math.max(0, item.valueUsd), 0)
-      .toFixed(2),
-  );
-  const changerSelectedTargets = changerTargets
-    .map((item) => ({
-      item,
-      quantity: changerTargetQuantities[item.id] ?? 0,
-    }))
-    .filter((selection) => selection.quantity > 0);
-  const changerTargetUnits = changerSelectedTargets.reduce(
-    (total, selection) => total + selection.quantity,
-    0,
-  );
-  const changerTargetValue = Number(
-    changerSelectedTargets
-      .reduce(
-        (total, selection) =>
-          total + Number(selection.item.card.priceUsd ?? 0) * selection.quantity,
-        0,
-      )
-      .toFixed(2),
-  );
-  const changerRefund = Number(
-    Math.max(0, changerStakeValue - changerTargetValue).toFixed(2),
-  );
-  const filteredChangerTargets = changerTargets.filter((item) => {
-    const query = changerQuery.trim().toLocaleLowerCase("es");
-    return (
-      (changerGame === "mixed" || item.card.game === changerGame) &&
-      (!query ||
-        item.card.name.toLocaleLowerCase("es").includes(query) ||
-        item.card.setName.toLocaleLowerCase("es").includes(query))
-    );
-  });
   const sortedDraftItems = [...draftItems].sort((left, right) => {
     const leftPrice = left.card.priceUsd ?? 0;
     const rightPrice = right.card.priceUsd ?? 0;
@@ -1473,109 +1419,6 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     setDraftPrice(pack.price);
     setDraftItems(pack.items);
     setAdminMessage("");
-  };
-
-  const toggleChangerStake = (cardId: number) => {
-    if (changerSaving) return;
-    setChangerOutcome(null);
-    setChangerStakeIds((current) => {
-      if (current.includes(cardId)) {
-        return current.filter((id) => id !== cardId);
-      }
-      return current.length >= 20 ? current : [...current, cardId];
-    });
-  };
-
-  const addChangerTarget = (item: ShopStockItem) => {
-    if (!session || changerSaving || !changerStakeIds.length) return;
-    const price = Number(item.card.priceUsd ?? 0);
-    const currentQuantity = changerTargetQuantities[item.id] ?? 0;
-    if (
-      price <= 0 ||
-      currentQuantity >= Math.min(20, item.quantity) ||
-      changerTargetUnits >= 20 ||
-      changerTargetValue + price > changerStakeValue + 0.0001
-    ) {
-      return;
-    }
-    setChangerOutcome(null);
-    setChangerTargetQuantities((current) => ({
-      ...current,
-      [item.id]: (current[item.id] ?? 0) + 1,
-    }));
-  };
-
-  const removeChangerTarget = (stockId: number) => {
-    if (changerSaving) return;
-    setChangerOutcome(null);
-    setChangerTargetQuantities((current) => {
-      const quantity = current[stockId] ?? 0;
-      if (quantity <= 1) {
-        const next = { ...current };
-        delete next[stockId];
-        return next;
-      }
-      return { ...current, [stockId]: quantity - 1 };
-    });
-  };
-
-  const playChanger = async () => {
-    if (!session) {
-      setAuthMode("login");
-      setHomeAuthOpen(true);
-      return;
-    }
-    if (
-      !changerStakeIds.length ||
-      !changerSelectedTargets.length ||
-      changerTargetValue <= 0 ||
-      changerTargetValue > changerStakeValue
-    ) {
-      return;
-    }
-
-    setChangerSaving(true);
-    setChangerOutcome(null);
-    try {
-      const response = await apiFetch("/api/changer/play", {
-        method: "POST",
-        headers: {
-          ...authHeader(session),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          stakeCardIds: changerStakeIds,
-          targetItems: changerSelectedTargets.map((selection) => ({
-            stockId: selection.item.id,
-            quantity: selection.quantity,
-          })),
-        }),
-      });
-      const payload = (await response.json()) as ChangerPlayResponse;
-      if (!response.ok || payload.error || !payload.runId) {
-        throw new Error(payload.error ?? "No se pudo completar el cambio.");
-      }
-
-      updateSessionUser(payload.user);
-      setChangerOutcome(payload);
-      setChangerStakeIds([]);
-      setChangerTargetQuantities({});
-      setWonCardsMessageTone("success");
-      setWonCardsMessage(
-        payload.refundUsd
-          ? `Cambio completado. Se acreditaron ${formatUsd.format(payload.refundUsd)} en tu cartera.`
-          : "Cambio completado.",
-      );
-      await Promise.all([loadWonCards(), loadChangerOptions()]);
-    } catch (error) {
-      setWonCardsMessageTone("error");
-      setWonCardsMessage(
-        error instanceof Error ? error.message : "No se pudo completar el cambio.",
-      );
-      void loadChangerOptions();
-    } finally {
-      setChangerSaving(false);
-    }
   };
 
   const saveDraftPack = async () => {
