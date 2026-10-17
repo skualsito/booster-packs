@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { apiFetch, authHeader } from "../api";
+import { apiFetch } from "../api";
 import type { AuthState } from "../auth/useAuth";
 import { formatUsd } from "../format";
 import type { WalletResponse } from "../types";
@@ -34,7 +34,6 @@ export function useWallet(deps: WalletDeps) {
       const response = await apiFetch("/api/wallet/topup", {
         method: "POST",
         headers: {
-          ...authHeader(session),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ amount }),

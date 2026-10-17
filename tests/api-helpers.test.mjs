@@ -12,6 +12,9 @@ import {
   createSessionToken,
   hashPassword,
   hashSessionToken,
+  isCsrfSafe,
+  parseCookies,
+  serializeSessionCookie,
   verifyPassword,
 } from "../server/lib/security.mjs";
 
@@ -124,4 +127,42 @@ test("clientIp only trusts proxy headers from loopback", () => {
     clientIp(request("203.0.113.9", { "x-real-ip": "1.2.3.4" })),
     "203.0.113.9",
   );
+});
+
+test("parseCookies reads values and ignores malformed parts", () => {
+  assert.deepEqual(parseCookies("a=1; pullario_session=abc%20d; junk; b=%E0"), {
+    a: "1",
+    pullario_session: "abc d",
+  });
+  assert.deepEqual(parseCookies(undefined), {});
+});
+
+test("serializeSessionCookie is HttpOnly, Lax and optionally scoped", () => {
+  assert.equal(
+    serializeSessionCookie("s", "tok", {
+      maxAgeMs: 8 * 60 * 60 * 1000,
+      domain: ".pullario.juanalmada.com",
+    }),
+    "s=tok; Path=/; Max-Age=28800; HttpOnly; SameSite=Lax; Secure; Domain=.pullario.juanalmada.com",
+  );
+  assert.equal(
+    serializeSessionCookie("s", "", { maxAgeMs: 0, secure: false }),
+    "s=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax",
+  );
+});
+
+test("isCsrfSafe only lets allowed origins mutate", () => {
+  const allowed = ["https://pullario.juanalmada.com"];
+  const request = (method, headers = {}) => ({ method, headers });
+
+  assert.equal(isCsrfSafe(request("GET", { origin: "https://evil.test" }), allowed, "s"), true);
+  assert.equal(
+    isCsrfSafe(request("POST", { origin: "https://pullario.juanalmada.com" }), allowed, "s"),
+    true,
+  );
+  assert.equal(isCsrfSafe(request("POST", { origin: "https://evil.test" }), allowed, "s"), false);
+  assert.equal(isCsrfSafe(request("DELETE", { origin: "null" }), allowed, "s"), false);
+  // No Origin: refuse when the session cookie would ride along, allow otherwise.
+  assert.equal(isCsrfSafe(request("POST", { cookie: "s=tok" }), allowed, "s"), false);
+  assert.equal(isCsrfSafe(request("POST", { authorization: "Bearer x" }), allowed, "s"), true);
 });

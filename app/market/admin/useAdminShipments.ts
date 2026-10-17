@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { apiFetch, authHeader } from "../api";
+import { apiFetch } from "../api";
 import type { AuthState } from "../auth/useAuth";
 import { isSellerRole } from "../catalog";
 import type {
@@ -30,9 +30,7 @@ export function useAdminShipments(deps: AdminShipmentsDeps) {
     }
 
     try {
-      const response = await apiFetch("/api/admin/shipments", {
-        headers: { ...authHeader(session) },
-      });
+      const response = await apiFetch("/api/admin/shipments");
       const payload = (await response.json()) as ShopShipmentsResponse;
 
       if (
@@ -66,7 +64,6 @@ export function useAdminShipments(deps: AdminShipmentsDeps) {
       const response = await apiFetch("/api/admin/shipments/deliver", {
         method: "POST",
         headers: {
-          ...authHeader(session),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ ids }),

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { apiFetch, authHeader } from "../api";
+import { apiFetch } from "../api";
 import type { AuthState } from "../auth/useAuth";
 import { isSellerRole } from "../catalog";
 import type {
@@ -48,7 +48,6 @@ export function useAdminUsersPanel(deps: AdminUsersPanelDeps) {
         const params = new URLSearchParams({ query: query.trim() });
         const response = await apiFetch(
           `/api/admin/users?${params.toString()}`,
-          { headers: { ...authHeader(session) } },
         );
         const payload = (await response.json()) as AdminUsersResponse;
 
@@ -103,7 +102,6 @@ export function useAdminUsersPanel(deps: AdminUsersPanelDeps) {
     try {
       const response = await apiFetch(
         `/api/admin/users/${encodeURIComponent(user.id)}/cards`,
-        { headers: { ...authHeader(session) } },
       );
       const payload = (await response.json()) as AdminUserCardsResponse;
 

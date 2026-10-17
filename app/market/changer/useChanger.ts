@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { apiFetch, authHeader } from "../api";
+import { apiFetch } from "../api";
 import type { AuthState } from "../auth/useAuth";
 import { formatUsd } from "../format";
 import type { NoticeState } from "../layout/useNotice";
@@ -50,11 +50,7 @@ export function useChanger(deps: ChangerDeps) {
   const loadChangerOptions = useCallback(async () => {
     setChangerLoading(true);
     try {
-      const response = await apiFetch("/api/changer", {
-        headers: session
-          ? { ...authHeader(session) }
-          : undefined,
-      });
+      const response = await apiFetch("/api/changer");
       const payload = (await response.json()) as UpgraderOptionsResponse;
 
       if (!response.ok || payload.error) {
@@ -200,7 +196,6 @@ export function useChanger(deps: ChangerDeps) {
       const response = await apiFetch("/api/changer/play", {
         method: "POST",
         headers: {
-          ...authHeader(session),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({

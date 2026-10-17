@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { apiFetch, authHeader } from "../api";
+import { apiFetch } from "../api";
 import type { RouletteAudioState } from "../audio/useRouletteAudio";
 import type { AuthState } from "../auth/useAuth";
 import { itemTypeOf } from "../catalog";
@@ -62,11 +62,7 @@ export function useUpgrader(deps: UpgraderDeps) {
   const loadUpgraderOptions = useCallback(async () => {
     setUpgraderLoading(true);
     try {
-      const response = await apiFetch("/api/upgrader", {
-        headers: session
-          ? { ...authHeader(session) }
-          : undefined,
-      });
+      const response = await apiFetch("/api/upgrader");
       const payload = (await response.json()) as UpgraderOptionsResponse;
 
       if (!response.ok || payload.error) {
@@ -276,7 +272,6 @@ export function useUpgrader(deps: UpgraderDeps) {
       const response = await apiFetch("/api/upgrader/play", {
         method: "POST",
         headers: {
-          ...authHeader(session),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({

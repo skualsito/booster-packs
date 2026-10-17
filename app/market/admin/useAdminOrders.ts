@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { apiFetch, authHeader } from "../api";
+import { apiFetch } from "../api";
 import type { AuthState } from "../auth/useAuth";
 import { isSellerRole } from "../catalog";
 import type {
@@ -26,11 +26,7 @@ export function useAdminOrders(deps: AdminOrdersDeps) {
     }
 
     try {
-      const response = await apiFetch("/api/admin/orders", {
-        headers: {
-          ...authHeader(session),
-        },
-      });
+      const response = await apiFetch("/api/admin/orders");
       const payload = (await response.json()) as ShopOrdersResponse;
 
       if (!response.ok || payload.error || !Array.isArray(payload.orders)) {
@@ -93,7 +89,6 @@ export function useAdminOrders(deps: AdminOrdersDeps) {
       const response = await apiFetch("/api/admin/orders/ship", {
         method: "POST",
         headers: {
-          ...authHeader(session),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({

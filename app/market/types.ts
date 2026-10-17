@@ -239,7 +239,6 @@ export type RecentDropsResponse = {
 };
 
 export type LoginResponse = {
-  token?: string;
   user?: {
     id: number;
     username: string;
@@ -267,7 +266,6 @@ export type LoginResponse = {
 };
 
 export type SessionAuth = {
-  token: string;
   id: number;
   username: string;
   role: UserRole;

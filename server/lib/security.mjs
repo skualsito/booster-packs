@@ -100,3 +100,76 @@ export function clientIp(request) {
 
   return remote;
 }
+
+export function parseCookies(header) {
+  const cookies = {};
+
+  if (typeof header !== "string") {
+    return cookies;
+  }
+
+  for (const part of header.split(";")) {
+    const separator = part.indexOf("=");
+
+    if (separator === -1) {
+      continue;
+    }
+
+    const name = part.slice(0, separator).trim();
+
+    if (name && !(name in cookies)) {
+      try {
+        cookies[name] = decodeURIComponent(part.slice(separator + 1).trim());
+      } catch {
+        // Ignore malformed values instead of failing the whole request.
+      }
+    }
+  }
+
+  return cookies;
+}
+
+// HttpOnly keeps the session token out of reach of page scripts (XSS).
+// maxAgeMs = 0 expires the cookie.
+export function serializeSessionCookie(
+  name,
+  value,
+  { maxAgeMs, domain, secure = true },
+) {
+  const parts = [
+    `${name}=${encodeURIComponent(value)}`,
+    "Path=/",
+    `Max-Age=${Math.max(0, Math.floor(maxAgeMs / 1000))}`,
+    "HttpOnly",
+    "SameSite=Lax",
+  ];
+
+  if (secure) {
+    parts.push("Secure");
+  }
+
+  if (domain) {
+    parts.push(`Domain=${domain}`);
+  }
+
+  return parts.join("; ");
+}
+
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+// CSRF guard for cookie-authenticated requests: a mutating request must come
+// from an allowed Origin. Requests without Origin and without the session
+// cookie (curl, Bearer clients) can't ride the user's cookie, so they pass.
+export function isCsrfSafe(request, allowedOrigins, sessionCookieName) {
+  if (SAFE_METHODS.has((request.method ?? "GET").toUpperCase())) {
+    return true;
+  }
+
+  const origin = request.headers.origin;
+
+  if (typeof origin === "string" && origin) {
+    return allowedOrigins.includes(origin);
+  }
+
+  return !(sessionCookieName in parseCookies(request.headers.cookie));
+}

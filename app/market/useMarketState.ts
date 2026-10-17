@@ -3,7 +3,7 @@ import { useAdminPacks } from "./admin/useAdminPacks";
 import { useAdminShipments } from "./admin/useAdminShipments";
 import { useAdminStock } from "./admin/useAdminStock";
 import { useAdminUsersPanel } from "./admin/useAdminUsersPanel";
-import { apiFetch, authHeader, clearStoredSession } from "./api";
+import { apiFetch } from "./api";
 import { useRouletteAudio } from "./audio/useRouletteAudio";
 import { useAuth } from "./auth/useAuth";
 import { useCardSearch } from "./cards/useCardSearch";
@@ -201,14 +201,10 @@ export function useMarketState({ initialPackId, view }: MarketProps) {
     if (session) {
       void apiFetch("/api/auth/logout", {
         method: "POST",
-        headers: {
-          ...authHeader(session),
-        },
       }).catch(() => undefined);
     }
 
     setSession(null);
-    clearStoredSession();
     setAuthMessage("Sesion cerrada.");
     clearProfileForm();
     setWonCards([]);

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { apiFetch, authHeader } from "../api";
+import { apiFetch } from "../api";
 import type { AuthState } from "../auth/useAuth";
 import { formatUsd } from "../format";
 import type { NoticeState } from "../layout/useNotice";
@@ -38,11 +38,7 @@ export function useInventory(deps: InventoryDeps) {
     }
 
     try {
-      const response = await apiFetch("/api/me/cards", {
-        headers: {
-          ...authHeader(session),
-        },
-      });
+      const response = await apiFetch("/api/me/cards");
       const payload = (await response.json()) as UserCardsResponse;
 
       if (!response.ok || payload.error) {
@@ -150,9 +146,6 @@ export function useInventory(deps: InventoryDeps) {
         `/api/me/cards/${encodeURIComponent(cardId)}/sell`,
         {
           method: "POST",
-          headers: {
-            ...authHeader(session),
-          },
         },
       );
       const payload = (await response.json()) as WalletResponse;
@@ -203,9 +196,6 @@ export function useInventory(deps: InventoryDeps) {
         `/api/me/cards/${encodeURIComponent(cardId)}/withdraw`,
         {
           method: "POST",
-          headers: {
-            ...authHeader(session),
-          },
         },
       );
       const payload = (await response.json()) as {

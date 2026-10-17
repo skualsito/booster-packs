@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AdminOrdersState } from "../admin/useAdminOrders";
 import type { AdminStockState } from "../admin/useAdminStock";
-import { apiFetch, authHeader } from "../api";
+import { apiFetch } from "../api";
 import type { RouletteAudioState } from "../audio/useRouletteAudio";
 import type { AuthState } from "../auth/useAuth";
 import { isSellerRole } from "../catalog";
@@ -312,9 +312,6 @@ export function usePackOpening(deps: PackOpeningDeps) {
         `/api/packs/${encodeURIComponent(selectedPack.id)}/open`,
         {
           method: "POST",
-          headers: {
-            ...authHeader(session),
-          },
         },
       );
       const payload = (await response.json()) as OpenPackResponse;

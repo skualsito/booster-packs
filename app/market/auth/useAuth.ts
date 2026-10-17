@@ -1,12 +1,5 @@
 import { useEffect, useState } from "react";
-import {
-  apiFetch,
-  authHeader,
-  clearLegacyStoredSession,
-  clearStoredSession,
-  readStoredSession,
-  saveStoredSession,
-} from "../api";
+import { apiFetch, takeLegacySessionToken } from "../api";
 import type { CatalogState } from "../home/useCatalog";
 import type { NoticeState } from "../layout/useNotice";
 import type { ProfileFormState } from "../profile/useProfileForm";
@@ -72,24 +65,14 @@ export function useAuth(deps: AuthDeps) {
   const [homeAuthOpen, setHomeAuthOpen] = useState(false);
 
   useEffect(() => {
-    const storedSession = readStoredSession();
-
-    if (!storedSession) {
-      return;
-    }
-
-    saveStoredSession(storedSession);
-    clearLegacyStoredSession();
-    // The session lives in localStorage, so it can only be restored after hydration:
-    // reading it in a useState initializer would make the first client render
-    // differ from the server HTML. Restoring it here is syncing from an external
-    // system, which is what effects are for.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSession(storedSession);
-    fillProfileForm(storedSession);
+    // A token left by a pre-cookie build is sent once as Bearer; the API
+    // answers with the HttpOnly cookie and the token is gone from storage.
+    const legacyToken = takeLegacySessionToken();
 
     void apiFetch("/api/me", {
-      headers: { ...authHeader(storedSession) },
+      headers: legacyToken
+        ? { Authorization: `Bearer ${legacyToken}` }
+        : undefined,
     })
       .then(async (response) => {
         const payload = (await response.json()) as LoginResponse;
@@ -97,26 +80,18 @@ export function useAuth(deps: AuthDeps) {
         if (!response.ok || !payload.user) {
           if (response.status === 401) {
             setSession(null);
-            clearStoredSession();
           }
           return;
         }
 
-        const refreshedSession: SessionAuth = {
-          ...storedSession,
-          ...payload.user,
-          token: storedSession.token,
-        };
-        setSession(refreshedSession);
-        saveStoredSession(refreshedSession);
-        fillProfileForm(refreshedSession);
+        setSession(payload.user);
+        fillProfileForm(payload.user);
       })
       .catch(() => undefined);
   }, [fillProfileForm]);
 
   const storeSession = (nextSession: SessionAuth) => {
     setSession(nextSession);
-    saveStoredSession(nextSession);
     fillProfileForm(nextSession);
   };
 
@@ -173,14 +148,11 @@ export function useAuth(deps: AuthDeps) {
       const payload = (await response.json()) as LoginResponse;
       nextApiStatus = response.status >= 500 ? "offline" : "online";
 
-      if (!response.ok || payload.error || !payload.token || !payload.user) {
+      if (!response.ok || payload.error || !payload.user) {
         throw new Error(payload.error ?? "No se pudo iniciar sesion.");
       }
 
-      const auth: SessionAuth = {
-        token: payload.token,
-        ...payload.user,
-      };
+      const auth: SessionAuth = payload.user;
 
       storeSession(auth);
       setHomeAuthOpen(false);
@@ -215,7 +187,6 @@ export function useAuth(deps: AuthDeps) {
       const response = await apiFetch("/api/me", {
         method: "PUT",
         headers: {
-          ...authHeader(session),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({

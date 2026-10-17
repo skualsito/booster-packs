@@ -4,7 +4,7 @@ import type {
   ExternalCard,
   PrizeItemType,
 } from "../../lib/card-search";
-import { apiFetch, authHeader } from "../api";
+import { apiFetch } from "../api";
 import type { AuthState } from "../auth/useAuth";
 import {
   cardGames,
@@ -71,11 +71,7 @@ export function useAdminStock(deps: AdminStockDeps) {
     }
 
     try {
-      const response = await apiFetch("/api/admin/stock", {
-        headers: {
-          ...authHeader(session),
-        },
-      });
+      const response = await apiFetch("/api/admin/stock");
       const payload = (await response.json()) as ShopStockResponse;
 
       if (!response.ok || payload.error || !Array.isArray(payload.stock)) {
@@ -167,7 +163,6 @@ export function useAdminStock(deps: AdminStockDeps) {
       const response = await apiFetch("/api/admin/stock", {
         method: "POST",
         headers: {
-          ...authHeader(session),
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ card, quantity }),
@@ -313,7 +308,6 @@ export function useAdminStock(deps: AdminStockDeps) {
         {
           method: "PUT",
           headers: {
-            ...authHeader(session),
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ quantity }),
@@ -387,7 +381,6 @@ export function useAdminStock(deps: AdminStockDeps) {
         {
           method: "PUT",
           headers: {
-            ...authHeader(session),
             "Content-Type": "application/json",
           },
           body: JSON.stringify({

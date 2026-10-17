@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ExternalCard, PrizeItemType } from "../../lib/card-search";
-import { apiFetch, authHeader } from "../api";
+import { apiFetch } from "../api";
 import type { AuthState } from "../auth/useAuth";
 import { gameAccents, isSellerRole, itemTypeOf } from "../catalog";
 import { demoPacks } from "../demo-packs";
@@ -159,7 +159,6 @@ export function useAdminPacks(deps: AdminPacksDeps) {
       const response = await apiFetch("/api/packs", {
         method: "POST",
         headers: {
-          ...authHeader(session),
           "Content-Type": "application/json",
         },
         body: JSON.stringify(pack),
@@ -207,9 +206,6 @@ export function useAdminPacks(deps: AdminPacksDeps) {
     try {
       const response = await apiFetch(`/api/packs/${encodeURIComponent(packId)}`, {
         method: "DELETE",
-        headers: {
-          ...authHeader(session),
-        },
       });
       const payload = (await response.json()) as { error?: string };
       nextApiStatus = response.status >= 500 ? "offline" : "online";

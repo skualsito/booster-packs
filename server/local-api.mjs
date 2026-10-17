@@ -17,6 +17,9 @@ import {
   createSessionToken,
   hashPassword,
   hashSessionToken,
+  isCsrfSafe,
+  parseCookies,
+  serializeSessionCookie,
   verifyPassword,
 } from "./lib/security.mjs";
 
@@ -44,6 +47,12 @@ const config = {
   mysqlDatabase: process.env.MYSQL_DATABASE ?? "hitshelf",
   adminUsername: process.env.ADMIN_USERNAME ?? "admin",
   adminPassword: process.env.ADMIN_PASSWORD ?? "",
+  sessionCookieName: process.env.SESSION_COOKIE_NAME || "pullario_session",
+  // e.g. ".pullario.juanalmada.com" so web and API subdomains share it; empty
+  // means a host-only cookie on the API host.
+  sessionCookieDomain: process.env.SESSION_COOKIE_DOMAIN?.trim() || undefined,
+  // Browsers accept Secure cookies on http://localhost, so this stays on locally.
+  sessionCookieSecure: process.env.SESSION_COOKIE_SECURE !== "false",
 };
 
 if (!config.adminPassword) {
@@ -561,8 +570,10 @@ function setCorsHeaders(request, response) {
 
   if (origin && config.corsAllowedOrigins.includes(origin)) {
     response.setHeader("Access-Control-Allow-Origin", origin);
-    response.setHeader("Vary", "Origin");
+    response.setHeader("Access-Control-Allow-Credentials", "true");
   }
+
+  response.setHeader("Vary", "Origin");
 
   response.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   response.setHeader(
@@ -616,8 +627,45 @@ function getBearerToken(request) {
   return scheme?.toLowerCase() === "bearer" ? token : undefined;
 }
 
+// The HttpOnly cookie is the primary credential; Bearer stays as a fallback
+// while older clients migrate.
+function getSessionToken(request) {
+  return (
+    parseCookies(request.headers.cookie)[config.sessionCookieName] ||
+    getBearerToken(request)
+  );
+}
+
+function setSessionCookie(response, token) {
+  response.setHeader(
+    "Set-Cookie",
+    serializeSessionCookie(config.sessionCookieName, token, {
+      maxAgeMs: TOKEN_TTL_MS,
+      domain: config.sessionCookieDomain,
+      secure: config.sessionCookieSecure,
+    }),
+  );
+}
+
+function clearSessionCookie(response) {
+  response.setHeader(
+    "Set-Cookie",
+    serializeSessionCookie(config.sessionCookieName, "", {
+      maxAgeMs: 0,
+      domain: config.sessionCookieDomain,
+      secure: config.sessionCookieSecure,
+    }),
+  );
+}
+
+// The token goes only in the HttpOnly cookie, never in the JSON body.
+function sendSession(response, { token, user }) {
+  setSessionCookie(response, token);
+  sendJson(response, 200, { user });
+}
+
 async function requireUser(request) {
-  const token = getBearerToken(request);
+  const token = getSessionToken(request);
 
   if (!token || !/^[a-f0-9]{64}$/.test(token)) {
     return undefined;
@@ -2409,6 +2457,11 @@ async function handleRequest(request, response) {
     return;
   }
 
+  if (!isCsrfSafe(request, config.corsAllowedOrigins, config.sessionCookieName)) {
+    sendJson(response, 403, { error: "Origen no permitido." });
+    return;
+  }
+
   const url = new URL(request.url ?? "/", "http://localhost");
   const pathname = url.pathname;
 
@@ -2442,23 +2495,24 @@ async function handleRequest(request, response) {
     enforceRateLimit(loginLimiter, limitKey);
     const result = await login(body);
     loginLimiter.reset(limitKey);
-    sendJson(response, 200, result);
+    sendSession(response, result);
     return;
   }
 
   if (request.method === "POST" && pathname === "/api/auth/register") {
     enforceRateLimit(registerLimiter, clientIp(request));
-    sendJson(response, 200, await register(await readJsonBody(request)));
+    sendSession(response, await register(await readJsonBody(request)));
     return;
   }
 
   if (request.method === "POST" && pathname === "/api/auth/logout") {
-    const token = getBearerToken(request);
+    const token = getSessionToken(request);
 
     if (token) {
       await deleteSession(token);
     }
 
+    clearSessionCookie(response);
     sendJson(response, 200, { ok: true });
     return;
   }
@@ -2467,10 +2521,17 @@ async function handleRequest(request, response) {
     const session = await requireUser(request);
 
     if (!session) {
+      if (config.sessionCookieName in parseCookies(request.headers.cookie)) {
+        clearSessionCookie(response);
+      }
+
       sendJson(response, 401, { error: "Inicia sesion." });
       return;
     }
 
+    // Re-issuing keeps the cookie's Max-Age in step with the sliding session
+    // and moves Bearer-only clients onto the cookie.
+    setSessionCookie(response, session.token);
     sendJson(response, 200, await getMe(session));
     return;
   }
